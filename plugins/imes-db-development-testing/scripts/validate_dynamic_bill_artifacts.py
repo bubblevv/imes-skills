@@ -23,6 +23,9 @@ FIXED_HEADER_SUFFIXES = ("_SHBZ", "_PJLX", "_ZDR", "_SHR", "_ZY")
 # increase this to max(20, image_width + 8); callers can pass that measurement.
 DEFAULT_BROWSE_BUTTON_WIDTH = 20
 MIN_LAYOUT_GAP = 10
+# IOBDZD_MARK is the document-number prefix consumed by PRD_GETDANHAO.  The
+# confirmed convention is exactly two ASCII letters, unique across IOBDZD.
+IOBDZD_MARK_RE = re.compile(r"^[A-Za-z]{2}$")
 
 
 def extract_tuples(text: str) -> list[str]:
@@ -210,23 +213,35 @@ def validate_forward(path: Path, expected_rid_start: int | None = None, expected
     route_inserts = _iobdzd_inserts(sql)
     if not route_inserts:
         errors.append("forward.sql 没有 IOBDZD INSERT")
+    seen_marks: dict[str, int] = {}
     for insert_no, (columns, chunk) in enumerate(route_inserts, 1):
         if "IOBDZD_FORMAT" not in columns:
             errors.append(f"IOBDZD INSERT {insert_no}: 缺少 IOBDZD_FORMAT")
-            continue
-        format_index = columns.index("IOBDZD_FORMAT")
+        if "IOBDZD_MARK" not in columns:
+            errors.append(f"IOBDZD INSERT {insert_no}: 缺少 IOBDZD_MARK")
         rows = extract_tuples(chunk)
         if not rows:
             errors.append(f"IOBDZD INSERT {insert_no}: 没有 VALUES 行")
             continue
+        format_index = columns.index("IOBDZD_FORMAT") if "IOBDZD_FORMAT" in columns else None
+        mark_index = columns.index("IOBDZD_MARK") if "IOBDZD_MARK" in columns else None
         for row_no, row in enumerate(rows, 1):
             values = split_values(row)
             if len(values) != len(columns):
                 errors.append(f"IOBDZD INSERT {insert_no} tuple {row_no}: 列清单{len(columns)}项，实际{len(values)}项")
                 continue
-            format_token = values[format_index]
-            if format_token.strip().upper() == "NULL" or not _sql_string_value(format_token).strip():
-                errors.append(f"IOBDZD INSERT {insert_no} tuple {row_no}: IOBDZD_FORMAT 不能为 NULL、空串或空格")
+            if format_index is not None:
+                format_token = values[format_index]
+                if format_token.strip().upper() == "NULL" or not _sql_string_value(format_token).strip():
+                    errors.append(f"IOBDZD INSERT {insert_no} tuple {row_no}: IOBDZD_FORMAT 不能为 NULL、空串或空格")
+            if mark_index is not None:
+                mark = _sql_string_value(values[mark_index])
+                if not IOBDZD_MARK_RE.fullmatch(mark):
+                    errors.append(f"IOBDZD INSERT {insert_no} tuple {row_no}: IOBDZD_MARK 必须是恰好两个英文字母，实际{values[mark_index].strip()}")
+                elif mark in seen_marks:
+                    errors.append(f"IOBDZD INSERT {insert_no} tuple {row_no}: IOBDZD_MARK {mark} 与 tuple {seen_marks[mark]} 重复")
+                else:
+                    seen_marks[mark] = row_no
     inserts = _sys_tbcolumn_inserts(sql)
     if not inserts:
         errors.append("forward.sql 没有 SYS_TbColumn INSERT")

@@ -57,7 +57,8 @@
 
 在建表前记录并从相邻单据证明：
 
-- 单据显示名、稳定的 `IOBDZD_BH`、非空 `IOBDZD_FORMAT`、主表和明细表名称；新建契约未提供格式时默认为 `YYMM####`，不能写入 `NULL`、空字符串或空格；
+- 单据显示名、`IOBDZD_BH`、`IOBDZD_MARK`、非空 `IOBDZD_FORMAT`、主表和明细表名称；新建契约未提供格式时默认为 `YYMM####`，不能写入 `NULL`、空字符串或空格；
+- `IOBDZD_BH` 和 `IOBDZD_MARK` 必须先勘察后分配，不能逐张表单临时编：先只读盘点目标库现有 `IOBDZD`，按业务类归组，再从盘点结果推出两个值。`IOBDZD_BH` 是稳定的类代码，同类表单集中排列，按“类前缀 + 序列号”取该类当前最小未用序号；已确认的类前缀必须沿用，不得为已归属某类的表单另造前缀、重排无关路由或凭单张表单孤立取号。`IOBDZD_MARK` 是单号前缀，必须恰好两个 ASCII 英文字母且在整张 `IOBDZD` 中全局唯一；`NULL`、空串、空白、数字、中文、三个及以上字母、混合非 ASCII 和重复值一律拒绝。两者都是固定路由标识，修复时不得为迁就新表单而改动既有已确认值；
 - 对 `CBill` 路线，表头固定字段卡为 HID（`<HEADER>_ID`）、日期（`<HEADER>_YWRQ`）、凭证类型（`<HEADER>_PJLX`）、单号（`<HEADER>_SJDH`）、打印次数（`<HEADER>_PRINT`）、审核（`<HEADER>_SHBZ`）、制单人（`<HEADER>_ZDR`）、审核人（`<HEADER>_SHR`）、摘要（`<HEADER>_ZY`）；每个字段必须同时有真实物理列和 `PO=1` 维护元数据。物理日期字段必须为 `类型=D / 控件=E`。`PJLX` 物理列必填且保存 `IOBDZD_BH`，维护页和查询页元数据必须为 `类型=S / 控件=S`，并满足 `必填=1/切换=1/GLZD=IOBDZD_BH`；标准审核状态映射为 `切换=1/GLZD=LSDJZT_BH`。`审核(<HEADER>_SHBZ)` 必须为 `类型=S / 控件=E` 的普通编辑框（默认值通常 `0`，物理列可为 `bit NOT NULL DEFAULT 0`），通过 `GLZD=LSDJZT_BH` 显示审核状态字典（未审核/已审核等）；**不得**误写成 `类型=C / 控件=C` 复选框，`必填` 必须为 `0`，维护页 `只读=1`（状态由审核/撤审流程写入）、查询页 `只读=0`（作为筛选列），`列宽` 与同版本参照一致。除日期和 `*_PJLX` 外，新生成字段固定 `控件=E`、`类型=S`，不得自行豁免；字段后缀或映射不同必须由活动源码证明，不能自行豁免；
 - 每个动态明细页的固定字段卡为 FID（`<DETAIL>_ID`）、单号（`<DETAIL>_SJDH`）和分录号（`<DETAIL>_FLH`）；
 - 主表到明细表的连接键、明细行号、数量/金额精度、仓库/物料/批号等业务键；
@@ -85,13 +86,14 @@
 | 配置 | 验收 |
 |---|---|
 | `IOBDZD_MC` | 与 `v_tbcolumn.表名`、客户端传入的业务显示名和 `IOYYGX_BDMC` 一致且唯一 |
-| `IOBDZD_BH` | 稳定单据类型；当前动态引擎把它写入表头 `<HEADER>_PJLX` 并用于数据权限/固定过滤。不要假设它等于可见名 |
+| `IOBDZD_BH` | 稳定类代码；当前动态引擎把它写入表头 `<HEADER>_PJLX` 并用于数据权限/固定过滤。不要假设它等于可见名。同类表单集中排列，按“类前缀 + 序列号”取该类当前最小未用序号；分配前必须只读盘点现有 `IOBDZD` 并按业务类归组，不得逐张表单孤立取号。前缀加序列号后长度不固定，依赖它的列宽按当前最长路由值计算，不要按固定六字符估算 |
+| `IOBDZD_MARK` | 单号前缀；`PRD_GETDANHAO` 按 `IOBDZD_MC` 读取该值后拼接单号。必须恰好两个 ASCII 英文字母且在整张 `IOBDZD` 中全局唯一；`NULL`、空串、空白、数字、中文、三个及以上字母、混合非 ASCII 和重复值一律拒绝 |
 | `IOBDZD_HTABLE` / `IOBDZD_FTABLE` | 分别指向真实主表/明细表；没有明细时确认客户端是否允许为空，不能照抄其他单据 |
 | `IOBDZD_TAB1..3` | 只有存在对应 `PO` 页签时才配置；验证空页签不会让客户端生成错误过滤 |
 | `IOBDZD_HVKEY` / `IOBDZD_FVKEY` | 当引擎用主外键拼接参照时必须能在两张表中解析 |
 | `IOBDZD_AVBKEY`、`IOBDZD_IOFLAG`、`IOBDZD_TYPE`、`IOBDZD_MANUAL`、`IOBDZD_AFFSTOCK`、`IOBDZD_SLZD`、`IOBDZD_SUM` 等 | 仅在该版本源码读取且业务需要时配置；逐项检查枚举值和消费入口，不因名称相似而猜默认值 |
 
-验证 `MC`、`BH`、`MARK`、主表/明细表映射不存在重复和悬空引用，并以一条只读查询证明每个值能被按运行时查找键取回。当前 `GenDanhao` 传入 `IOBDZD_MC`，`PRD_GETDANHAO` 也按 `MC` 读取 `MARK/FORMAT/BascData/CurMonth/ModifyDate` 并更新编号状态；`BILLNO` 不是该入口的格式来源。对新建的 `YYMM####` 路由，按已确认的过程语义初始化 `BascData=0`、`CurMonth=CONVERT(varchar(7),GETDATE(),111)`、`ModifyDate=CONVERT(date,GETDATE())`，不能留空，否则首个流水号会跳过有效分支；同时显式写入已确认的 `IOBDZD_Type` 与 `IOBDZD_IoFlag`。确认过程定义支持的格式分支后再接受非默认值；存量修复先断言空值分布，只更新精确目标行，不重置已有计数状态。
+验证 `MC`、`BH`、`MARK`、主表/明细表映射不存在重复和悬空引用，并以一条只读查询证明每个值能被按运行时查找键取回。`MARK` 额外断言形状（长度为 `2` 且不含 `[A-Za-z]` 之外的字符）与全表唯一；`BH` 断言在同类中不重复。当前 `GenDanhao` 传入 `IOBDZD_MC`，`PRD_GETDANHAO` 也按 `MC` 读取 `MARK/FORMAT/BascData/CurMonth/ModifyDate` 并更新编号状态；`BILLNO` 不是该入口的格式来源。对新建的 `YYMM####` 路由，按已确认的过程语义初始化 `BascData=0`、`CurMonth=CONVERT(varchar(7),GETDATE(),111)`、`ModifyDate=CONVERT(date,GETDATE())`，不能留空，否则首个流水号会跳过有效分支；同时显式写入已确认的 `IOBDZD_Type` 与 `IOBDZD_IoFlag`。确认过程定义支持的格式分支后再接受非默认值；存量修复先断言空值分布，只更新精确目标行，不重置已有计数状态。
 
 ### 4. 注册 `IOJCBDZD` 和字段帮助
 
@@ -210,7 +212,7 @@
 
 1. `DB_NAME()`、`@@SERVERNAME`、兼容级别和目标版本正确。
 2. 主表/明细表、主外键、业务唯一性、索引和关键运行列存在且类型兼容。
-3. `IOBDZD` 的 `MC/BH/MARK -> HTABLE/FTABLE -> TAB1..3` 映射唯一，所有对象存在；`AutoOpen` 会命中 `IOBDZD` 而不是回退 `BTYPE=2`。
+3. `IOBDZD` 的 `MC/BH/MARK -> HTABLE/FTABLE -> TAB1..3` 映射唯一，所有对象存在；`AutoOpen` 会命中 `IOBDZD` 而不是回退 `BTYPE=2`。`MARK` 为恰好两个 ASCII 英文字母且在整张 `IOBDZD` 中全局唯一；`BH` 在同类中不重复，并在证据包中记录本次分配所依据的同类盘点结果。
 4. `v_tbcolumn` 的表头/明细行能按 `PO,顺序` 返回；每个元数据字段能映射物理列；维护页和查询页的 `RID` 非空、为正数且集合内唯一；每个 `PO=1` 行的控件类型和必需运行输入完整。验证 SQL 必须按 `CreateDlgItemWithArrayDateTime` 的读取形状核对 `类型/字段名/标签名/控件/显示/必填/只读/RID`，不能只查基础表行数。每个明细页满足 `FID/单号/分录号/关键字段` 和首字段表名前缀契约；连接字段和帮助映射不悬空。数据库等价验证通过后仍需真实重新打开维护页和查询页。
 5. `<IOBDZD_MC>查询` 字段集非空、单一 `PO=1` 分组、无 `表头=1` 锚点行、`顺序` 1..n 连续唯一、`显示名` 与 `标签名` 各自唯一、物理/参照字段可解析，并通过与原单据交叉表拼接的标题 SQL 和派生表包装测试。
 6. 每个 `切换`/`帮助` 字段执行显示值到键、键到显示值和过滤查询；每个 `GLZD` 字段执行参照 JOIN。

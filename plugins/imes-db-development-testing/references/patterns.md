@@ -14,6 +14,21 @@ Safe fix pattern: for a new dynamic-bill contract normalize a missing format to 
 
 Verification: assert `IOBDZD_FORMAT` is non-empty and equals the reviewed contract value, prove the route is uniquely found by `IOBDZD_MC`, verify the physical `<HEADER>_PJLX` still carries `IOBDZD_BH`, and keep the old/new format in a symmetric rollback artifact. A read-only MCP may provide the evidence but must not execute the repair; after an authorized test execution, reopen the bill and create a new document to confirm the client receives a number.
 
+## Dynamic Bill Route Codes Are Allocated By Class Inventory
+
+Symptom: a new dynamic bill is registered, but its `IOBDZD_BH` is an isolated code invented for that one form, or its `IOBDZD_MARK` is a long bill code, a digit, or a duplicate of another route. Numbering then either collides with an existing route or produces a prefix nobody can trace back to a business class.
+
+Likely cause: `BH` and `MARK` were chosen form by form instead of from the target database's existing allocation. `AutoOpen` needs a non-empty unique `MARK` to enter the dynamic-bill path, and `PRD_GETDANHAO` reads `MARK` by `IOBDZD_MC` to build the document number, so both values are route identity rather than free-text labels. Nothing in the runtime rejects a badly shaped mark; it fails later, as a wrong or colliding document number.
+
+Safe fix pattern: before assigning either value, run a read-only inventory of the target's `IOBDZD` rows and group them by business class.
+
+- `IOBDZD_BH`: keep forms of the same business class grouped together and assign downward as class prefix plus serial number, taking the smallest unused serial in that class. Preserve a confirmed existing class prefix; do not invent a new prefix for a form that belongs to an established class, renumber unrelated routes, or allocate an isolated code from the new form alone. Because the prefix-plus-serial form has no fixed width, size dependent columns from the current longest route value instead of assuming a six-character code.
+- `IOBDZD_MARK`: require exactly two ASCII English letters, globally unique across the entire `IOBDZD` table. Reject `NULL`, empty or whitespace-only values, digits, Chinese characters, three or more letters, mixed non-ASCII, and any duplicate of an existing mark. A generator must fail closed on a missing or malformed mark rather than substituting a default such as `1`.
+
+Both values are fixed route identity, so a repair must not change an existing confirmed `BH` or `MARK` to accommodate a new form.
+
+Verification: assert the mark is exactly two ASCII letters, unused before the write and still unique after it; assert the chosen `BH` does not collide with an existing route and sits in its class's serial range; keep the inventory that justified both choices in the evidence package. Do not accept a route registration whose `BH`/`MARK` provenance is only "it was free".
+
 ## Dynamic Bill Metadata Is Incomplete
 
 Symptom: a new transfer/transaction table exists, but the dynamic bill cannot open, fields are missing or read-only incorrectly, lookup values save as display text, references return no rows, upstream/downstream search fails, or the authorized user cannot see the form.
@@ -538,13 +553,13 @@ Verification: assert one-to-one visible-name ownership for every new route, conf
 
 补充口径：`IOJCBDZD` 的凭证类型帮助以 `IOBDZD_BH` 为键、以 `IOBDZD_MC` 为显示值；因此“当前路由短码长度”不能作为宽度依据。应按所有有效 `IOBDZD_MC` 的最长完整名称测量，并分别写入维护表单的 `宽度` 和查询网格的 `列宽` 契约。
 
-症状：凭据类型（`*_PJLX`）控件或查询列能显示字段名，却放不下完整的六字符/多字符路由值，出现截断或与相邻字段重叠。
+症状：凭据类型（`*_PJLX`）控件或查询列能显示字段名，却放不下完整的当前最长路由值，出现截断或与相邻字段重叠。
 
 可能原因：只按“凭据类型”四个字计算了最小宽度，或把 `SYS_TbColumn.列宽`（网格列）当成表单 `宽度`（输入控件）；路由值来自 `IOBDZD_BH`，其实际显示长度可能超过标签长度，固定写 `100`/复制其他单据宽度必然失配。
 
 安全修复模式：分别为维护页和查询页计算 `*_PJLX` 的显示宽度，取完整标签和目标路由值（至少覆盖当前 `IOBDZD_BH` 的最长显示值）中较大的实际文本宽度，再加同版本客户端的左右内边距和控件余量，最后按该环境的网格步长向上取整。文本测量必须使用客户端当前字体/DPI 的 `GetTextExtentExPoint` 或等价证据；不能用字符数、表名长度、固定列宽或 SQL 字段长度代替。保留 `控件=S`、`类型=S`、`切换=1`、`GLZD=IOBDZD_BH` 映射，只调整经证据确认的布局宽度；自适应布局若需运行时重排，必须在创建和 resize 时重新测量，数据库初始坐标不能冒充自适应实现。
 
-验证：枚举路由下所有 `IOBDZD_BH` 显示值，断言维护页和查询页的 `PJLX` 标签及最长值均完整落在各自的 `宽度`/`列宽` 内，宽度按步长取整且不与同一行字段相交；确认 `PJLX` 控件和映射契约未被布局修复改写。真实打开维护页和查询页，在不同窗口宽度/DPI 下检查六字符及最长路由值无截断、无重叠；若无法取得同版本字体测量或客户端 resize 证据，保持 review-blocked，不得宣称已自适应。
+验证：枚举路由下所有 `IOBDZD_BH` 显示值，断言维护页和查询页的 `PJLX` 标签及最长值均完整落在各自的 `宽度`/`列宽` 内，宽度按步长取整且不与同一行字段相交；确认 `PJLX` 控件和映射契约未被布局修复改写。真实打开维护页和查询页，在不同窗口宽度/DPI 下检查当前最长路由值无截断、无重叠；若无法取得同版本字体测量或客户端 resize 证据，保持 review-blocked，不得宣称已自适应。
 
 ## 明细单号别名必须匹配翻前单外层过滤
 

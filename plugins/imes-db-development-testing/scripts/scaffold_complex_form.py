@@ -52,6 +52,12 @@ REQUIRED_SYSMENU_BUTTONS = (
 )
 DEFAULT_IOBDZD_FORMAT = "YYMM####"
 IOBDZD_FORMAT_RE = re.compile(r"^(?:YYMM(?:#+)?|YYYYMM(?:#+)?|YYMMDD(?:#+)?|#+)$", re.I)
+# IOBDZD_MARK is the document-number prefix consumed by PRD_GETDANHAO.  The
+# confirmed convention is exactly two ASCII letters, globally unique across the
+# whole IOBDZD table.  There is no safe default: the mark prefixes every number
+# this route issues, so a missing or malformed value must fail closed instead of
+# falling back to a placeholder such as "1".
+IOBDZD_MARK_RE = re.compile(r"^[A-Za-z]{2}$")
 
 
 def normalize_iobdzd_format(value: Any) -> str:
@@ -73,6 +79,24 @@ def normalize_iobdzd_format(value: Any) -> str:
             "(YYMM, YYYYMM, YYMMDD, or # serial pattern)"
         )
     return normalized
+
+
+def normalize_iobdzd_mark(value: Any) -> str:
+    """Validate the two-letter document-number prefix used by PRD_GETDANHAO.
+
+    Unlike the format, this value has no acceptable default: the mark prefixes
+    every document number the route issues, so a missing or malformed value is a
+    contract error rather than something to normalize away.
+    """
+    if value is None or not str(value).strip():
+        raise ValueError("route.mark is required: IOBDZD_MARK must be exactly two ASCII letters")
+    normalized = str(value).strip()
+    if not IOBDZD_MARK_RE.fullmatch(normalized):
+        raise ValueError(
+            f"route.mark {normalized!r} is invalid: IOBDZD_MARK must be exactly two ASCII letters"
+        )
+    return normalized
+
 
 def resolve_column_width(field: dict[str, Any], row: dict[str, Any], visible: bool) -> int:
     """Resolve a metadata grid width without confusing it with layout width."""
@@ -274,6 +298,7 @@ def normalize(contract: dict[str, Any]) -> dict[str, Any]:
         spec["fields"] = normalized
     route = contract["route"]
     route["format"] = normalize_iobdzd_format(route.get("format"))
+    route["mark"] = normalize_iobdzd_mark(route.get("mark"))
     for key in ("bh", "htable", "ftable", "vkey", "byzd"):
         if not route.get(key):
             raise ValueError(f"route.{key} is required")
@@ -643,7 +668,7 @@ def render_preflight(c: dict[str, Any]) -> str:
     for role in ("header", "detail"):
         table = c[role]["table"]
         lines += [f"SELECT N'{role}' AS TableRole,c.name,TYPE_NAME(c.user_type_id) AS DataType,c.max_length,c.is_nullable,c.column_id", "FROM sys.columns c", f"WHERE c.object_id=OBJECT_ID(N'dbo.{table}',N'U') ORDER BY c.column_id;", ""]
-    lines += ["IF OBJECT_ID(N'dbo.IOBDZD',N'U') IS NULL THROW 54101,N'IOBDZD 缺失。',1;", "IF OBJECT_ID(N'dbo.SYS_TbColumn',N'U') IS NULL THROW 54102,N'SYS_TbColumn 缺失。',1;", "IF OBJECT_ID(N'dbo.sysmenu',N'U') IS NULL THROW 54103,N'sysmenu 缺失。',1;", f"SELECT IOBDZD_BH,IOBDZD_MC,IOBDZD_MARK,IOBDZD_FORMAT,IOBDZD_BILLNO,IOBDZD_BascData,IOBDZD_CurMonth,IOBDZD_ModifyDate,IOBDZD_HTABLE,IOBDZD_FTABLE,IOBDZD_HVKEY,IOBDZD_FVKEY FROM dbo.IOBDZD WHERE IOBDZD_MC IN ({qn(c.get('bill_name',''))},{qn(str(c.get('bill_name',''))+'查询')});", f"SELECT * FROM dbo.SYS_TbColumn WHERE 表名 IN ({qn(c.get('bill_name',''))},{qn(str(c.get('bill_name',''))+'查询')}) ORDER BY 表名,TRY_CONVERT(int,PO),顺序,字段名;", f"SELECT * FROM dbo.sysmenu WHERE sysmenu_bdmc={qn(c.get('bill_name',''))} ORDER BY sysmenu_topfloor,sysmenu_submenu,sysmenu_xh,sysmenu_buttonname;", "SELECT N'PREFLIGHT_REVIEW_COMPLETE' AS Status;"]
+    lines += ["IF OBJECT_ID(N'dbo.IOBDZD',N'U') IS NULL THROW 54101,N'IOBDZD 缺失。',1;", "IF OBJECT_ID(N'dbo.SYS_TbColumn',N'U') IS NULL THROW 54102,N'SYS_TbColumn 缺失。',1;", "IF OBJECT_ID(N'dbo.sysmenu',N'U') IS NULL THROW 54103,N'sysmenu 缺失。',1;", f"IF EXISTS (SELECT 1 FROM dbo.IOBDZD WHERE IOBDZD_MARK={qn(c['route']['mark'])}) THROW 54104,N'IOBDZD_MARK 已被占用，必须先只读盘点同类路由再分配。',1;", f"IF EXISTS (SELECT 1 FROM dbo.IOBDZD WHERE IOBDZD_BH={qn(c['route']['bh'])}) THROW 54105,N'IOBDZD_BH 已存在，同类表单应共用类前缀并按序列号向下排。',1;", "SELECT IOBDZD_BH,IOBDZD_MC,IOBDZD_MARK FROM dbo.IOBDZD ORDER BY IOBDZD_BH,IOBDZD_MC;", f"SELECT IOBDZD_BH,IOBDZD_MC,IOBDZD_MARK,IOBDZD_FORMAT,IOBDZD_BILLNO,IOBDZD_BascData,IOBDZD_CurMonth,IOBDZD_ModifyDate,IOBDZD_HTABLE,IOBDZD_FTABLE,IOBDZD_HVKEY,IOBDZD_FVKEY FROM dbo.IOBDZD WHERE IOBDZD_MC IN ({qn(c.get('bill_name',''))},{qn(str(c.get('bill_name',''))+'查询')});", f"SELECT * FROM dbo.SYS_TbColumn WHERE 表名 IN ({qn(c.get('bill_name',''))},{qn(str(c.get('bill_name',''))+'查询')}) ORDER BY 表名,TRY_CONVERT(int,PO),顺序,字段名;", f"SELECT * FROM dbo.sysmenu WHERE sysmenu_bdmc={qn(c.get('bill_name',''))} ORDER BY sysmenu_topfloor,sysmenu_submenu,sysmenu_xh,sysmenu_buttonname;", "SELECT N'PREFLIGHT_REVIEW_COMPLETE' AS Status;"]
     return "\n".join(lines) + "\n"
 
 
@@ -749,7 +774,7 @@ BEGIN TRY
     CREATE TABLE {h} ({render_columns(c['header'])});
     CREATE TABLE {d} ({render_columns(c['detail'])}, CONSTRAINT {qi('FK_'+c['detail']['table']+'_'+rel['field'])} FOREIGN KEY ({qi(rel['field'])}) REFERENCES {h}({qi(rel['references_field'])}));
     INSERT dbo.IOBDZD (IOBDZD_BH,IOBDZD_MARK,IOBDZD_MC,IOBDZD_Type,IOBDZD_IoFlag,IOBDZD_HTABLE,IOBDZD_FTABLE,IOBDZD_HVKEY,IOBDZD_FVKEY,IOBDZD_TAB1,IOBDZD_TAB2,IOBDZD_TAB3,IOBDZD_BILLNO,IOBDZD_FORMAT,IOBDZD_BZ)
-    VALUES ({qn(route['bh'])},{qn(route.get('mark','1'))},{qn(c['bill_name'])},{qn(route.get('type',''))},{int(route.get('ioflag',0))},{qn(route['htable'])},{qn(route['ftable'])},{qn(route['vkey'])},{qn(route.get('fvkey',rel['field']))},{qn(route.get('tab1','表头'))},{qn(route.get('tab2','表体'))},{qn(route.get('tab3',''))},{qn(route.get('billno',''))},{qn(route['format'])},{qn(route.get('bz',''))});
+    VALUES ({qn(route['bh'])},{qn(route['mark'])},{qn(c['bill_name'])},{qn(route.get('type',''))},{int(route.get('ioflag',0))},{qn(route['htable'])},{qn(route['ftable'])},{qn(route['vkey'])},{qn(route.get('fvkey',rel['field']))},{qn(route.get('tab1','表头'))},{qn(route.get('tab2','表体'))},{qn(route.get('tab3',''))},{qn(route.get('billno',''))},{qn(route['format'])},{qn(route.get('bz',''))});
     INSERT dbo.sysmenu ({','.join(qi(key) for key in menu_cols)}) VALUES
 {menu_tuples};
     INSERT dbo.SYS_TbColumn ({meta_cols}) VALUES
@@ -878,6 +903,10 @@ IF OBJECT_ID(N'{c['schema']}.{c['header']['table']}',N'U') IS NULL THROW 54200,N
 IF OBJECT_ID(N'{c['schema']}.{c['detail']['table']}',N'U') IS NULL THROW 54201,N'表体不存在。',1;
 IF (SELECT COUNT(*) FROM dbo.IOBDZD WHERE IOBDZD_MC={qn(c['bill_name'])} AND IOBDZD_HTABLE={qn(c['header']['table'])} AND IOBDZD_FTABLE={qn(c['detail']['table'])})<>1 THROW 54202,N'IOBDZD 路由不唯一。',1;
 IF (SELECT COUNT(*) FROM dbo.IOBDZD WHERE IOBDZD_MC={qn(c['bill_name'])} AND NULLIF(LTRIM(RTRIM(IOBDZD_FORMAT)),N'') IS NOT NULL AND IOBDZD_FORMAT={qn(c['route']['format'])})<>1 THROW 54234,N'IOBDZD_FORMAT 为空或与编号格式契约不一致。',1;
+IF (SELECT COUNT(*) FROM dbo.IOBDZD WHERE IOBDZD_MC={qn(c['bill_name'])} AND IOBDZD_MARK={qn(c['route']['mark'])})<>1 THROW 54235,N'IOBDZD_MARK 与路由契约不一致。',1;
+IF (SELECT COUNT(*) FROM dbo.IOBDZD WHERE IOBDZD_MARK={qn(c['route']['mark'])})<>1 THROW 54236,N'IOBDZD_MARK 在 IOBDZD 中不唯一。',1;
+IF EXISTS (SELECT 1 FROM dbo.IOBDZD WHERE IOBDZD_MARK IS NULL OR LEN(IOBDZD_MARK)<>2 OR PATINDEX(N'%[^A-Za-z]%',IOBDZD_MARK)<>0) THROW 54237,N'存在非两位英文字母的 IOBDZD_MARK。',1;
+IF (SELECT COUNT(*) FROM dbo.IOBDZD WHERE IOBDZD_BH={qn(c['route']['bh'])})<>1 THROW 54238,N'IOBDZD_BH 与路由契约不一致或在同类中重复。',1;
 IF NOT EXISTS (SELECT 1 FROM sys.foreign_key_columns fkc JOIN sys.foreign_keys fk ON fk.object_id=fkc.constraint_object_id WHERE fkc.parent_object_id=OBJECT_ID(N'{c['schema']}.{c['detail']['table']}') AND fkc.referenced_object_id=OBJECT_ID(N'{c['schema']}.{c['header']['table']}') AND COL_NAME(fkc.parent_object_id,fkc.parent_column_id)={qn(relation['field'])} AND COL_NAME(fkc.referenced_object_id,fkc.referenced_column_id)={qn(relation['references_field'])}) THROW 54211,N'表头表体外键缺失。',1;
 IF (SELECT COUNT(*) FROM dbo.SYS_TbColumn WHERE 表名={qn(c['bill_name'])})<>{len(meta_rows(c))} THROW 54203,N'SYS_TbColumn 维护页字段集不完整。',1;
 IF (SELECT COUNT(*) FROM dbo.SYS_TbColumn WHERE 表名={qn(c['bill_name']+'查询')})<>{len(c['metadata']['query_fields'])} THROW 54208,N'SYS_TbColumn 查询页字段集不完整。',1;
@@ -1011,7 +1040,7 @@ def render_readme(c: dict[str, Any]) -> str:
 
 ## 固化流程
 
-1. **字段契约确认**：表头/表体字段、主键、单号/分录号、外键、元数据类型（物理 `date`/`datetime`/`datetime2` 固定 `D`，其他字段固定 `S`）、普通字段控件默认值（`E`）、凭证类型字段（`*_PJLX`）固定为 `S`、审核字段和布局边界；`IOBDZD_FORMAT` 是 `PRD_GETDANHAO` 的流水号格式，缺失或空白默认 `YYMM####`，不能生成 NULL/空串。
+1. **字段契约确认**：表头/表体字段、主键、单号/分录号、外键、元数据类型（物理 `date`/`datetime`/`datetime2` 固定 `D`，其他字段固定 `S`）、普通字段控件默认值（`E`）、凭证类型字段（`*_PJLX`）固定为 `S`、审核字段和布局边界；`IOBDZD_FORMAT` 是 `PRD_GETDANHAO` 的流水号格式，缺失或空白默认 `YYMM####`，不能生成 NULL/空串；`IOBDZD_MARK` 是单号前缀，必须恰好两个英文字母且在整张 `IOBDZD` 中唯一，缺失或非法直接阻断生成；`IOBDZD_BH` 是稳定的类代码，同类表单集中排列并按“类前缀 + 序列号”取该类当前最小未用序号，分配前必须先只读盘点现有 `IOBDZD` 路由。
 2. **前期只读准备**：执行 `preflight.sql` 和 `reference-evidence.sql`，确认数据库身份、IOBDZD、SYS_TbColumn、查询页、BDJB、SYSWSPACE、标准 `sysmenu` 按钮和动态角色列。
 3. **中期事务部署**：仅当 `contract.json` 已闭合且 `deployment_ready=true` 时执行 `forward.sql`；脚本包含表、IOBDZD、元数据、BDJB、工作区和标准 `sysmenu` 按钮的一次事务部署。
 4. **后期校验与隔离 CRUD**：依次执行 `verification.sql`、`crud-test.sql`；验证覆盖维护页和查询页的正整数唯一 RID、逐字段运行时契约及 `v_tbcolumn` 投影，CRUD 在事务中回滚，必须零残留。

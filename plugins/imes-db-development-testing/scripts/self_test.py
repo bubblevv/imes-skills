@@ -387,7 +387,7 @@ def complex_fixture() -> dict:
             {"name": "EAMDJJLD2_SJDH", "sql": "varchar(30)", "nullable": False, "label": "单据号", "test_value": "DJ-TEST-001"},
             {"name": "EAMDJJLD2_FLH", "sql": "int", "nullable": False, "label": "分录号", "test_value": 1},
         ]},
-        "route": {"bh": "EAMDJJLD", "mark": "1", "htable": "EAMDJJLD1", "ftable": "EAMDJJLD2", "vkey": "EAMDJJLD1_SJDH", "byzd": "EAMDJJLD1_SJDH", "fvkey": "EAMDJJLD2_SJDH", "tab1": "表头", "tab2": "表体", "tab3": ""},
+        "route": {"bh": "EAMDJJLD", "mark": "AB", "htable": "EAMDJJLD1", "ftable": "EAMDJJLD2", "vkey": "EAMDJJLD1_SJDH", "byzd": "EAMDJJLD1_SJDH", "fvkey": "EAMDJJLD2_SJDH", "tab1": "表头", "tab2": "表体", "tab3": ""},
         "metadata": {
             "rid_strategy": "runtime-max-plus-offset",
             "layout_source": {"reference_bill_name": "点检模板"},
@@ -438,6 +438,27 @@ def test_complex_form_scaffold() -> None:
     blank_format = complex_fixture()
     blank_format["route"]["format"] = "   "
     assert scaffold_complex_form.normalize(blank_format)["route"]["format"] == "YYMM####"
+    assert c["route"]["mark"] == "AB"
+    # IOBDZD_MARK is the document-number prefix: exactly two ASCII letters and
+    # unique across the whole table.  There is no safe default, so every
+    # malformed shape must fail closed instead of being normalized away.
+    for bad_mark in ("", "   ", "1", "12", "ABC", "中文", "A1", "1A", "A "):
+        broken = complex_fixture()
+        broken["route"]["mark"] = bad_mark
+        try:
+            scaffold_complex_form.normalize(broken)
+        except ValueError as exc:
+            assert "IOBDZD_MARK" in str(exc)
+        else:
+            raise AssertionError(f"route.mark {bad_mark!r} must fail closed")
+    missing_mark = complex_fixture()
+    del missing_mark["route"]["mark"]
+    try:
+        scaffold_complex_form.normalize(missing_mark)
+    except ValueError as exc:
+        assert "IOBDZD_MARK" in str(exc)
+    else:
+        raise AssertionError("a missing route.mark must fail closed rather than default to '1'")
     invalid_format = complex_fixture()
     invalid_format["route"]["format"] = "MMYY####"
     try:
@@ -512,6 +533,16 @@ def test_complex_form_scaffold() -> None:
         missing_format_path = Path(temp_dir) / "missing-format.sql"
         missing_format_path.write_text(missing_format, encoding="utf-8")
         assert any("缺少 IOBDZD_FORMAT" in error for error in validate_dynamic_bill_artifacts.validate_forward(missing_format_path))
+        missing_mark = forward.replace(",IOBDZD_MARK,", ",", 1)
+        missing_mark_path = Path(temp_dir) / "missing-mark.sql"
+        missing_mark_path.write_text(missing_mark, encoding="utf-8")
+        assert any("缺少 IOBDZD_MARK" in error for error in validate_dynamic_bill_artifacts.validate_forward(missing_mark_path))
+        assert ",N'AB'," in forward, "the fixture must render its two-letter mark for the negative cases below"
+        for index, bad_mark in enumerate(("N'1'", "N'ABC'", "N'中文'", "N'A1'", "NULL")):
+            bad_path = Path(temp_dir) / f"bad-mark-{index}.sql"
+            bad_path.write_text(forward.replace(",N'AB',", f",{bad_mark},", 1), encoding="utf-8")
+            bad_errors = validate_dynamic_bill_artifacts.validate_forward(bad_path)
+            assert any("IOBDZD_MARK" in error for error in bad_errors), bad_mark
 
     same_row_contract = complex_fixture()
     same_row_contract["metadata"]["audit"].update({"top": 40, "bottom": 62})

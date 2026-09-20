@@ -157,6 +157,18 @@ Pass criteria:
 - queries `BascData`, `CurMonth`, and `ModifyDate` before an existing repair and updates only the exact empty target rows with database/instance gates, old-value assertions, affected-row assertions, and symmetric rollback;
 - verifies the route by `IOBDZD_MC`, confirms the physical/metadata `PJLX` mapping remains intact, runs the authorized test-database verification, and reopens the bill to confirm a new number is returned.
 
+## Dynamic Bill Route Code And Mark Allocation
+
+Prompt shape: the user registers a new `IOBDZD` bill and expects `IOBDZD_BH` to keep same-class forms together in a class-prefix-plus-serial order, with `IOBDZD_MARK` as a two-letter document-number prefix that must not repeat.
+
+Pass criteria:
+
+- runs a read-only inventory of the target's existing `IOBDZD` rows and groups them by business class before choosing either value, instead of inventing a code for the new form alone;
+- assigns `IOBDZD_BH` as the class prefix plus the smallest unused serial in that class, preserves a confirmed existing class prefix, does not renumber unrelated routes, and does not assume a fixed six-character width when sizing dependent columns;
+- requires `IOBDZD_MARK` to be exactly two ASCII English letters and globally unique across the whole `IOBDZD` table, rejecting `NULL`, empty, whitespace-only, digit, Chinese, three-or-more-letter, mixed non-ASCII, and duplicate values;
+- fails closed rather than defaulting a missing mark, and proves the generated preflight/verification assert both the two-letter shape and the table-wide uniqueness;
+- treats both values as fixed route identity: an existing confirmed `BH` or `MARK` is not changed to accommodate a new form, and the inventory that justified the allocation is kept in the evidence package.
+
 ## Dynamic Bill Fixed-Field Gate
 
 Prompt shape: the user asks to register a `CBill`-style point-inspection template with a header/detail structure, but the supplied header omits `PJLX` or another standard field.
