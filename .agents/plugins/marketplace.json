@@ -1,0 +1,20 @@
+{
+  "name": "imes-skills",
+  "interface": {
+    "displayName": "IMES Skills"
+  },
+  "plugins": [
+    {
+      "name": "imes-db-development-testing",
+      "source": {
+        "source": "local",
+        "path": "./plugins/imes-db-development-testing"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "imes-skills",
+  "owner": {
+    "name": "llk",
+    "url": "https://github.com/bubblevv"
+  },
+  "description": "IMES 数据库开发与测试相关的 Claude Code 插件集合",
+  "plugins": [
+    {
+      "name": "imes-db-development-testing",
+      "source": "./plugins/imes-db-development-testing",
+      "description": "设计、开发、测试并排查 IMES SQL Server 数据库对象与业务逻辑（含业务表/元数据表单/BDJB 审核/动态单据/存储过程）"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+# The skill files are authored with LF; normalize on checkout everywhere.
+* text=auto eol=lf
+
+# Binary / non-text assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.svg binary
+*.zip binary

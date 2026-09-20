@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+
+# Local ER fixture used by scripts/self_test.py — never commit customer diagrams.
+*.svg
+!docs/**/*.svg
+
+# Editor / OS noise
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

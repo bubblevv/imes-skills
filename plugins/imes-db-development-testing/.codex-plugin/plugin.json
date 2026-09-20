@@ -1,0 +1,28 @@
+{
+  "name": "imes-db-development-testing",
+  "version": "1.0.0",
+  "description": "设计、开发、测试并排查 IMES SQL Server 数据库对象与业务逻辑（含业务表/元数据表单/BDJB 审核/动态单据/存储过程）",
+  "author": {
+    "name": "llk",
+    "url": "https://github.com/bubblevv"
+  },
+  "homepage": "https://github.com/bubblevv/imes-skills",
+  "repository": "https://github.com/bubblevv/imes-skills",
+  "license": "SEE LICENSE IN LICENSE",
+  "keywords": [
+    "imes",
+    "sqlserver",
+    "database",
+    "erp",
+    "bdjb",
+    "metadata-form"
+  ],
+  "skills": "./",
+  "interface": {
+    "displayName": "IMES数据库开发与测试",
+    "shortDescription": "设计、开发、测试并排查 IMES 数据库对象与业务逻辑",
+    "longDescription": "覆盖 IMES SQL Server 数据库的业务表设计、表结构迁移、索引与约束、存储过程、自定义报表、BDJB 审核/撤审、PDA、报工、回填与同步，以及元数据驱动的表单契约。默认只读调查，写入需明确授权。",
+    "developerName": "llk",
+    "category": "Productivity"
+  }
+}
