@@ -130,6 +130,39 @@ def expected_metadata_control(field_name: str) -> str:
     return "S" if str(field_name).upper().endswith("_PJLX") else "E"
 
 
+_NUMERIC_TYPES = {
+    "bigint", "int", "smallint", "tinyint",
+    "decimal", "numeric", "float", "real", "money", "smallmoney",
+}
+_DATE_TYPES = {"date", "datetime", "datetime2", "smalldatetime", "datetimeoffset"}
+
+
+def physical_numeric_fields(sql: str) -> set[str]:
+    """Return physical fields declared numeric in the pack.
+
+    A numeric column must carry an N* 类型: the client formats the saved literal
+    from 类型, and 类型='S' writes '' for an empty cell, which the numeric column
+    rejects.  bit is excluded because its 类型 depends on field semantics.
+    """
+    pattern = re.compile(
+        r"(?:\(|,)\s*\[?([A-Za-z_][A-Za-z0-9_]*)\]?\s+"
+        r"(?:bigint|int|smallint|tinyint|decimal|numeric|float|real|money|smallmoney)\b",
+        flags=re.IGNORECASE,
+    )
+    return {match.group(1).upper() for match in pattern.finditer(sql)}
+
+
+def expected_default_meta_type(field_name: str, date_fields: set[str],
+                               numeric_fields: set[str]) -> str:
+    """Default 类型 from the physical column type (contract 9.1)."""
+    upper = str(field_name).upper()
+    if upper in date_fields:
+        return "D"
+    if upper in numeric_fields:
+        return "N"
+    return "S"
+
+
 def physical_date_fields(sql: str) -> set[str]:
     """Return physical fields declared as date/datetime/datetime2 in the pack.
 
@@ -216,6 +249,7 @@ def validate_forward(path: Path, expected_rid_start: int | None = None, expected
     if browse_button_width <= 0:
         errors.append(f"帮助按钮宽度必须为正整数，实际{browse_button_width}")
     date_fields = physical_date_fields(sql)
+    numeric_fields = physical_numeric_fields(sql)
     route_inserts = _iobdzd_inserts(sql)
     if not route_inserts:
         errors.append("forward.sql 没有 IOBDZD INSERT")
@@ -298,11 +332,19 @@ def validate_forward(path: Path, expected_rid_start: int | None = None, expected
             if key_field not in {"0", "1"}:
                 errors.append(f"SYS_TbColumn INSERT {insert_no} tuple {row_no}: 关键字段必须为 0/1，实际{key_field}")
             metadata_type = _sql_string_value(values[column_index["类型"]]).upper()
-            expected_type = "D" if field_name.upper() in date_fields else "S"
-            if metadata_type != expected_type:
+            expected_type = expected_default_meta_type(field_name, date_fields, numeric_fields)
+            # A numeric column may legitimately carry a specific N* precision
+            # (NF/NZ/ND/NJ/NB/N1..N6); anything not starting with N is wrong.
+            if expected_type == "N":
+                type_ok = metadata_type.startswith("N")
+            else:
+                type_ok = metadata_type == expected_type
+            if not type_ok:
                 errors.append(
                     f"SYS_TbColumn INSERT {insert_no} tuple {row_no}: 字段 {field_name} "
-                    f"类型必须为 {expected_type}，实际{metadata_type or '<空>'}"
+                    f"类型必须为 {expected_type}"
+                    + ("*（数值列）" if expected_type == "N" else "")
+                    + f"，实际{metadata_type or '<空>'}"
                 )
             expected_control = expected_metadata_control(field_name)
             if control != expected_control:

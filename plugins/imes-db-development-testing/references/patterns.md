@@ -515,7 +515,7 @@ Verification: assert one-to-one visible-name ownership for every new route, conf
 
 可能原因：把 ER 图当成完整运行契约，或把复杂表单误走 BTYPE=1 单表路径；ER 图无法证明真实类型、主键策略、IOBDZD 路由、同版本审核坐标和生命周期规则。
 
-安全修复模式：先读 `references/complex-form-fast-path.md`，用 `scripts/scaffold_complex_form.py` 从 ER SVG 生成 `review-blocked` 契约包；回填只读 preflight/reference-evidence 结果后，再将表头/表体、外键、维护/查询字段集、审核底边、BDJB rows 和 workspace rows 收敛到同一份 `contract.json`。只有契约完整时生成 forward；新生成元数据中物理 `date`/`datetime`/`datetime2` 字段使用 `类型=D`，其他字段为 `S`；普通字段 `控件=E`，`*_PJLX`/凭证类型字段 `控件=S`，不按 bit、数值精度或标签推导其他值，`SYS_TbColumn.标识` 保持 NULL，不插入 `nID`，动态角色列及 `SYSWSPACE.admin` 后权限列默认授权。审核坐标和宽度必须来自同版本有效单据，不得复制未经核实的坐标。
+安全修复模式：先读 `references/complex-form-fast-path.md`，用 `scripts/scaffold_complex_form.py` 从 ER SVG 生成 `review-blocked` 契约包；回填只读 preflight/reference-evidence 结果后，再将表头/表体、外键、维护/查询字段集、审核底边、BDJB rows 和 workspace rows 收敛到同一份 `contract.json`。只有契约完整时生成 forward；新生成元数据的 `类型` 按物理列类型取默认值（数值 `N*`、日期 `D`、字符 `S`、标志类 `bit` `C`，其它 `S`，见 `client-source-contract.md` 9.1）；普通字段 `控件=E`，`*_PJLX`/凭证类型字段 `控件=S`，`SYS_TbColumn.标识` 保持 NULL，不插入 `nID`，动态角色列及 `SYSWSPACE.admin` 后权限列默认授权。审核坐标和宽度必须来自同版本有效单据，不得复制未经核实的坐标。
 
 验证：Python self-test 和 skill validator 通过；ER 生成包的 forward/verification/crud/rollback 明确阻断；完整契约生成十个阶段文件，维护页/查询页字段集闭合、审核底边和控件规则有断言、角色权限使用动态发现、CRUD 事务零残留。数据库部署仍需在确认的测试环境执行并记录实际结果，复杂表单的 MFC/C++/RC 资源另行处理。
 
@@ -785,3 +785,18 @@ if (t < 0) return;          // 静默返回，整个保存被跳过
 验证：按客户端 `GenInsertSqlFromGrid` 的形状，用 `新增=1` 的元数据行拼出真实 `INSERT`，在事务内执行后回滚并断言零残留。数据库能插入不等于客户端能保存——必须确认身份列的别名是 `FID`。
 
 注意：并非所有 `BTYPE=1` 表单的 `顺序=0` 都是身份列（有的把业务列放在 0）。修之前必须先确认该行确实是身份列，不能照搬。
+
+## 数值列或 bit 列配了 类型='S' 导致新增保存失败
+
+症状：基础资料新增后保存报错，错误信息是 `从数据类型 varchar 转换为 numeric 时出错`，或 `不能将值 NULL 插入列 '...'，表 '...'；列不允许有 Null 值`。字段本身是数值或 bit 类型，看不出问题。
+
+可能原因：`GenInsertSqlFromGrid` 按 `类型` 决定生成的值字面量。`类型='S'` 走
+`strtmp1.Format("'%s'", tmp)`，**空单元格写成 `''`**。数值列收到 `''` 报转换错误；`bit NOT NULL` 列收到 `''` 报不允许 NULL。`类型='N*'` 走 `atof` + 精度格式化，空值写 `0.00`；标志类 bit 列用 `C` 写 `1`/`0`，两者都不会失败。
+
+同一个根因还有第三种形态：元数据 `字段名` 在物理表不存在（常见于漏写或错写下划线，例如 `EAMZCZTBH` 而物理列是 `EAMZCZT_BH`），生成的 INSERT 带一个不存在的列名，报 `列名无效`。
+
+安全修复模式：按物理列类型逐列核对 `类型`——数值列必须 `N*`、日期列 `D`、字符列 `S`、标志/状态类 `bit` 列 `C`。判定 `bit` 用不用 `C` 看字段语义（`*_BZ`、`*_ZT`、启用、是否…），不是看类型；全库同名语义字段的取值是现成的对照证据。悬空字段名要回到 `sys.columns` 确认物理列的真实拼写再改，不能凭显示名推断。只改 `类型`/`字段名`，不动 `顺序`、`RID`、`控件`、`显示名`、`标签名`。
+
+验证：按客户端 `GenInsertSqlFromGrid` 形状，用 `新增=1` 的元数据行拼出真实 INSERT，在事务内对每张受影响表单执行后整体回滚，断言零残留。数据库能插入不等于客户端能保存——必须核对 `类型` 而不是只看表结构。
+
+注意：这类缺陷往往成片存在（同一模块几十行），先按 `sys.types` 找出全部候选，再按模块范围收敛；不同模块的修复要分开交付，不要把全库 162 行一次改掉。

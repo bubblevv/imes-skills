@@ -368,13 +368,22 @@ def test_basic_form_scaffold() -> None:
         ],
     }
     normalized = scaffold_basic_form.normalize(contract)
+    # 类型 defaults come from the physical SQL type (contract 9.1): identity int
+    # is numeric, bit is a flag, datetime is a date.  A numeric column left as S
+    # makes the client write '' and the insert fails on conversion.
     assert [(field["name"], field["meta_type"], field["control"]) for field in normalized["fields"]] == [
-        ("TSTCJ_ID", "S", "E"),
+        ("TSTCJ_ID", "N", "E"),
         ("TSTCJ_CODE", "S", "E"),
         ("TSTCJ_NAME", "S", "E"),
         ("TSTCJ_ENABLED", "S", "E"),
         ("TSTCJ_DATE", "D", "E"),
     ]
+    # The physical-type default is a hard rule, so prove each mapping directly.
+    assert scaffold_basic_form.default_meta_type("int identity(1,1)") == "N"
+    assert scaffold_basic_form.default_meta_type("decimal(18,2)") == "N"
+    assert scaffold_basic_form.default_meta_type("varchar(50)") == "S"
+    assert scaffold_basic_form.default_meta_type("datetime") == "D"
+    assert scaffold_basic_form.default_meta_type("bit") == "S"
     forward = scaffold_basic_form.render_forward(normalized)
     assert "[表名]" in forward and "[字段名]" in forward and "[RID]" in forward
     assert "INSERT [dbo].[SYS_TbColumn] (nID" not in forward
@@ -474,6 +483,8 @@ def test_complex_form_scaffold() -> None:
         assert "review-blocked" in (out / "README.md").read_text(encoding="utf-8")
     c = scaffold_complex_form.normalize(complex_fixture())
     assert scaffold_complex_form.meta_type({"name": "EAMDJJLD1_YWRQ", "sql": "date"}) == "D"
+    assert scaffold_complex_form.meta_type({"name": "EAMDJJLD2_FLH", "sql": "int"}) == "N"
+    assert scaffold_complex_form.meta_type({"name": "EAMDJJLD2_SJDH", "sql": "varchar(30)"}) == "S"
     try:
         scaffold_complex_form.meta_type({"name": "EAMDJJLD1_YWRQ", "sql": "date", "type": "S"})
     except ValueError as exc:

@@ -104,8 +104,31 @@ def is_numeric(t: str) -> bool:
     return t.startswith(("int", "bigint", "smallint", "tinyint", "decimal"))
 
 
+# Physical SQL type -> default SYS_TbColumn.类型, per client-source-contract.md 9.1.
+# The client formats the saved literal from 类型: numeric columns must be N* so an
+# empty cell writes 0.00 instead of '', which a numeric column rejects.
+_NUMERIC_TYPES = {
+    "bigint", "int", "smallint", "tinyint",
+    "decimal", "numeric", "float", "real", "money", "smallmoney",
+}
+_DATE_TYPES = {"date", "datetime", "datetime2", "smalldatetime", "datetimeoffset"}
+
+
+def default_meta_type(sql_type: str) -> str:
+    """Return the default 类型 for a physical SQL type (see contract 9.1)."""
+    # base_type() keeps a (p,s) suffix, so strip it before matching.
+    base = re.sub(r"\(.*\)$", "", base_type(sql_type)).strip()
+    if base in _DATE_TYPES:
+        return "D"
+    if base in _NUMERIC_TYPES:
+        return "N"
+    # bit is C only when the field is a flag/status; the caller decides that via
+    # an explicit meta_type, because semantics are not derivable from the type.
+    return "S"
+
+
 def infer_meta_type(field: dict[str, Any]) -> str:
-    expected = "D" if base_type(str(field.get("sql", ""))) in {"date", "datetime", "datetime2"} else "S"
+    expected = default_meta_type(str(field.get("sql", "")))
     explicit = field.get("type")
     if explicit is not None and str(explicit).strip().upper() != expected:
         raise ValueError(
@@ -480,7 +503,7 @@ def render_readme(c: dict[str, Any]) -> str:
 4. `crud-test.sql`（隔离事务，必须零残留）
 5. `rollback-preflight.sql`、`rollback.sql`（仅在明确回滚且无业务数据时）
 
-脚本不包含凭据、不创建 MFC/C++ 资源。新生成元数据中，物理 `date`/`datetime`/`datetime2` 字段固定为 `类型=D`，其他字段固定为 `类型=S`；普通字段控件为 `E`，不从 bit、数值精度、标签或其他 SQL 类型推导特殊控件，标识为 NULL；`BTYPE=1/UForm1` 的 `顺序` 按客户端列下标从 `0..n-1` 生成，动态单据不使用此快速通道；可见字段的 `列宽` 默认按 `标签` 完整显示宽度生成（3 个汉字为 `840`、4 个汉字为 `1125`，ASCII 按半宽单元计算并按 `15` 单位向上取整），显式更窄值会阻断，显式更宽值保留；`RID` 后真实角色列和 `admin` 后工作区权限列默认全部授权为 `1`；如需不同规则，必须有单独的源码证据和修复契约。
+脚本不包含凭据、不创建 MFC/C++ 资源。新生成元数据的 `类型` 按物理列类型取默认值：数值列 `N`、日期列 `D`、字符列 `S`、标志/状态类 `bit` 列 `C`，其它为 `S`；普通字段控件为 `E`，标识为 NULL；`BTYPE=1/UForm1` 的 `顺序` 按客户端列下标从 `0..n-1` 生成，动态单据不使用此快速通道；可见字段的 `列宽` 默认按 `标签` 完整显示宽度生成（3 个汉字为 `840`、4 个汉字为 `1125`，ASCII 按半宽单元计算并按 `15` 单位向上取整），显式更窄值会阻断，显式更宽值保留；`RID` 后真实角色列和 `admin` 后工作区权限列默认全部授权为 `1`；如需不同规则，必须有单独的源码证据和修复契约。
 
 推荐执行（连接参数由环境安全注入）：`sqlcmd -S <server> -d <database> -b -f 65001 -i <script.sql>`。
 """

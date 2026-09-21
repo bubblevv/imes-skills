@@ -190,8 +190,31 @@ def base_type(value: str) -> str:
     return re.sub(r"\s+IDENTITY\([^)]*\)$", "", value, flags=re.I).lower()
 
 
+# Physical SQL type -> default SYS_TbColumn.类型, per client-source-contract.md 9.1.
+# The client formats the saved literal from 类型: numeric columns must be N* so an
+# empty cell writes 0.00 instead of '', which a numeric column rejects.
+_NUMERIC_TYPES = {
+    "bigint", "int", "smallint", "tinyint",
+    "decimal", "numeric", "float", "real", "money", "smallmoney",
+}
+_DATE_TYPES = {"date", "datetime", "datetime2", "smalldatetime", "datetimeoffset"}
+
+
+def default_meta_type(sql_type: str) -> str:
+    """Return the default 类型 for a physical SQL type (see contract 9.1)."""
+    # base_type() keeps a (p,s) suffix, so strip it before matching.
+    base = re.sub(r"\(.*\)$", "", base_type(sql_type)).strip()
+    if base in _DATE_TYPES:
+        return "D"
+    if base in _NUMERIC_TYPES:
+        return "N"
+    # bit is C only when the field is a flag/status; the caller decides that via
+    # an explicit meta_type, because semantics are not derivable from the type.
+    return "S"
+
+
 def meta_type(field: dict[str, Any]) -> str:
-    expected = "D" if base_type(str(field.get("sql", ""))) in {"date", "datetime", "datetime2"} else "S"
+    expected = default_meta_type(str(field.get("sql", "")))
     explicit = field.get("meta_type") or field.get("type")
     if explicit is not None and str(explicit).strip().upper() != expected:
         raise ValueError(
@@ -1064,7 +1087,7 @@ def render_readme(c: dict[str, Any]) -> str:
 
 ## 固化流程
 
-1. **字段契约确认**：表头/表体字段、主键、单号/分录号、外键、元数据类型（物理 `date`/`datetime`/`datetime2` 固定 `D`，其他字段固定 `S`）、普通字段控件默认值（`E`）、凭证类型字段（`*_PJLX`）固定为 `S`、审核字段和布局边界；`IOBDZD_FORMAT` 是 `PRD_GETDANHAO` 的流水号格式，缺失或空白默认 `YYMM####`，不能生成 NULL/空串；`IOBDZD_MARK` 是单号前缀，必须恰好两个英文字母且在整张 `IOBDZD` 中唯一，缺失或非法直接阻断生成；`IOBDZD_BH` 是稳定的类代码，同类表单集中排列并按“类前缀 + 序列号”取该类当前最小未用序号，分配前必须先只读盘点现有 `IOBDZD` 路由。
+1. **字段契约确认**：表头/表体字段、主键、单号/分录号、外键、元数据类型（按物理列类型取默认：数值 `N`、日期 `D`、字符 `S`、标志类 `bit` `C`，其它 `S`）、普通字段控件默认值（`E`）、凭证类型字段（`*_PJLX`）固定为 `S`、审核字段和布局边界；`IOBDZD_FORMAT` 是 `PRD_GETDANHAO` 的流水号格式，缺失或空白默认 `YYMM####`，不能生成 NULL/空串；`IOBDZD_MARK` 是单号前缀，必须恰好两个英文字母且在整张 `IOBDZD` 中唯一，缺失或非法直接阻断生成；`IOBDZD_BH` 是稳定的类代码，同类表单集中排列并按“类前缀 + 序列号”取该类当前最小未用序号，分配前必须先只读盘点现有 `IOBDZD` 路由。
 2. **前期只读准备**：执行 `preflight.sql` 和 `reference-evidence.sql`，确认数据库身份、IOBDZD、SYS_TbColumn、查询页、BDJB、SYSWSPACE、标准 `sysmenu` 按钮和动态角色列。
 3. **中期事务部署**：仅当 `contract.json` 已闭合且 `deployment_ready=true` 时执行 `forward.sql`；脚本包含表、IOBDZD、元数据、BDJB、工作区和标准 `sysmenu` 按钮的一次事务部署。
 4. **后期校验与隔离 CRUD**：依次执行 `verification.sql`、`crud-test.sql`；验证覆盖维护页和查询页的正整数唯一 RID、逐字段运行时契约及 `v_tbcolumn` 投影，CRUD 在事务中回滚，必须零残留。
