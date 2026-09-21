@@ -2,6 +2,20 @@
 
 Use this path whenever the user mentions BDJB, audit/cancel-audit, reporting backfill, completion/status not updating, or supplies a `BDJB_PJLX` query.
 
+## 第一原则：审核与取消审核是互逆的一对
+
+**审核 = 单据生效**，把本单影响写入下游；**取消审核 = 单据失效**，把审核写过的东西**原样撒回**。`cancel(audit(x)) == x`。
+
+- 判断取消审核该写什么，看审核写了什么，**逐项反过来**：置 1 的置回 0、写的值还原、清的值恢复。
+- 审核写的是**本单的值**，取消审核就撒回本单的值——不要“重算”、不要“取最新一张单的值”、不要“查还有没有别的单据再决定”。
+- 只有在审核本身写的就是**派生聚合值**（按所有生效单据求和）时，取消审核才需要重算；那属于 `audit-state-matrix.md` 的数量矩阵范畴，不是默认写法。
+- 互逆是否安全，看**审核的校验是否已排除多张单据同时生效**。有这条不变式就简单互逆；没有就先补校验，别用重算去兜歧义。
+- 执行顺序是前提：`QZJC=0`（置 `SHBZ`）排在 `QZJC=1`（业务）之前，所以取消审核的业务规则运行时本单 `SHBZ` 已是 0，不会把自己算进“已审核单据”。
+
+验证时断言**互逆性**而不是固定值：记录基线 → 审核 → 取消审核 → **断言回到基线** → 再审核 → 断言幂等。
+
+详细规则见 `references/audit-state-matrix.md` 的「第一原则」。
+
 ## Mandatory First Round
 
 Run these read-only steps before broad discovery:

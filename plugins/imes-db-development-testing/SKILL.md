@@ -33,6 +33,7 @@ description: Develop, test, or diagnose IMES SQL Server databases across custome
 11. **`CBill` 固定字段卡在物理列和元数据里都必须齐全**，其中 `<表头>_PJLX` 是硬运行字段：所有表头读写都带 `and <表头>_PJLX='<IOBDZD_BH>'`。
 12. **`IOBDZD_BH` 必须能唯一反查 `IOBDZD_HTABLE`/`IOBDZD_MC`；`IOBDZD_FORMAT`、`IOBDZD_MARK`、`HTABLE`/`FTable`/`Vkey` 必须齐全。** 单号由 `PRD_GETDANHAO` 按可见表单名生成，过程缺失或 `FORMAT` 为空只会得到空单号，不报错。
 13. **`BDJB_PJLX` 用可见表单名，不是 `IOBDZD_BH`。** 审核状态 `<表头>_SHBZ` 的取值含义必须来自同版本字典，源码多处直接比较 `="1"`。
+13b. **审核与取消审核是一对互逆脚本。** 审核=单据生效（把本单影响写入下游），取消审核=单据失效（把审核写过的东西原样撒回），`cancel(audit(x))==x`。取消审核逐项反过来写，**不要自创“重算当前状态”**；只有审核本身写的是派生聚合值时取消审核才需要重算（见 `references/audit-state-matrix.md`）。互逆是否安全取决于审核校验是否已排除多张单据同时生效。执行顺序 `QZJC=0`（置 `SHBZ`）先于 `QZJC=1`（业务）是前提。
 14. **`BTYPE=1/UForm1` 的 `顺序` 是真实 0 基列下标**（`0..n-1`）；`BTYPE=1` 搜索按钮写死 `charindex(…,码表编号)`，字段集必须能投影出别名 `码表编号`，否则搜索恒定报“列名 '码表编号' 无效”——这是客户端范围问题，**不得**用新增物理列掩盖。
 15. **目标库排序规则必须是大小写不敏感。** 同一源码里 `v_tbcolumn`、`V_TbColumn`、`V_TBCOLUMN` 并存。
 16. **空来源必须回放验证。** 部署前执行 `SELECT <GetDataField> FROM <GetCrossTable> WHERE 1=2`，以及维护页、查询页、翻前单三种包装形状；`SELECT  FROM …` 与 `FROM )` 分别指向字段集为空和跨表来源为空，两者根因不同。
