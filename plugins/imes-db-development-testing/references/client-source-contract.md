@@ -37,11 +37,11 @@ grep -o '<ClCompile Include="[^"]*"' SGSoft.vcxproj | sed 's/.*Include="//;s/"//
 
 2. **源码读不到的键不报错，只返回空串。** `GetStrTgValue` 取首行首列，没有行就是 `""`；空串被直接拼进 SQL，最终表现为 `FROM )`、`select  , ...`、`字段=''`。这类错误没有异常、没有堆栈，只能靠回放 SQL 定位。
 3. **表名/视图名大小写不保证一致。** `GetDataField` 用 `v_tbcolumn`，`GetCrossTable` 用 `V_TbColumn`，`UForm1` 用 `V_TBCOLUMN`。目标库排序规则必须是大小写不敏感（`Chinese_PRC_CI_AS` 一类）；若为 `_CS_`，同名不同大小写会直接报“对象名无效”。前置检查必须读 `DATABASEPROPERTYEX(DB_NAME(),'Collation')`。
-4. **同一业务对象有三个不同的键，不能混用。** 路由/关联用 `IOJCBDZD_MC`，帮助用 `IOJCBDZD_BZBH`，单据用 `IOBDZD_MC`（部分路径用 `IOBDZD_BH`）。键写错不报错，只取到空值。
+4. **同一业务对象有三个不同的查找键，不能混用。** `IOJCBDZD_MC` 是直接业务/表单路由（例如 `AutoOpen`/`GetStrTgValue`）的可见名；`SYS_TbColumn.GLZD` 在当前已编译 `v_tbcolumn` 路径中通过 `IOJCBDZD_Vkey` 关联到参照表；字段帮助用 `IOJCBDZD_BZBH`；单据用 `IOBDZD_MC`（部分审批路径用 `IOBDZD_BH`）。键写错通常只取到空值。
 
 | 读取者 | 表 | 键列 | 取用列 |
 |---|---|---|---|
-| 关联显示投影 `v_tbcolumn` | `IOJCBDZD` | `IOJCBDZD_MC` = 字段的 `GLZD` | `TABLE / VKEY / BYZD / FILTER` |
+| 关联显示投影 `v_tbcolumn` | `IOJCBDZD` | `SYS_TbColumn.GLZD = IOJCBDZD_Vkey`（由视图 JOIN，且当前路径要求 `TOP=1`） | `TABLE / VKEY / BYZD / FILTER` |
 | 帮助选择窗口 `CDataEdit::OnShowChooseWindow` | `IOJCBDZD` | `IOJCBDZD_BZBH` = 字段的 `帮助` | `TABLE / BZMC / VKEY / BYZD / FILTER / SXXS` |
 | 参照列表 `CBaseItem::LoadData`（无 `strBZMC` 分支） | `IOJCBDZD` | `IOJCBDZD_MC` | `VKEY / BYZD / TABLE / FILTER` |
 | 单据跨表来源 `GetCrossTable` | `IOBDZD` | `IOBDZD_MC` = 表单名 | `HTable / FTable / HVkey / FVkey` |
@@ -161,6 +161,7 @@ FROM 来源按顺序回退，第一个非空胜出：
 | 其它 | 其它（含 `S`） | 普通编辑框，`showtype=2`：**右键按 `帮助` 打开选择窗口** |
 
 - **【硬规则 3.1】** `D` 是“日期格式框且只读”，不是日期选择器；需要可直接输入的日期时间用 `DT`。把日期字段建成 `D` 会得到右键才能选的只读框，把 `DT` 建成普通字段会丢掉时间选择器。控件码只能按同版本源码 + 同库工作单据决定，不能按物理列类型推断。
+- **【硬规则 3.1a】** CBill 新增时 `SetBlank` 只对 `置空=1` 的行处理；`类型='D'` 写入 `AppData.adddate`，而不是读取 `默认值`。`AppData.adddate` 来自登录窗口的账务日期，通常初始化为客户端当前日期但可以被用户选择的账务日期覆盖。要同时保证新增显示和直接 SQL 插入兜底，日期字段必须有 `类型='D'`、维护页 `置空=1`，物理日期列应有 `GETDATE()` 默认；只改 `SYS_TbColumn.默认值` 不能修复日期不显示。
 - **【硬规则 3.2】** `类型`/`字段名`/`标签名`/`控件` 被直接转成字符串；`显示`、`必填`、`只读` 被直接转 `bool`；`RID` 被转 `(int)(double)`。这些列出现 `NULL` 会抛异常并被 `catch(...)` 吞掉，最终只显示“控件初始化时出错!”——**表单打不开，菜单已建好**。每个 `PO=1` 行都必须有非空 `控件`、`类型`、`字段名`、`标签名`、`RID`，以及非空布尔标志和布局值。
 - **【硬规则 3.3】** `左坐标/顶坐标/宽度/高度` 为空时回退到 `40/60/100/80`，多个空坐标字段会叠在同一处；可见控件必须有正数宽高。
 - **【硬规则 3.4】** 源码还会按**角色名**取同名列（`GetCollect(<当前角色>)`）决定可见性。角色列缺失会被内层 `catch(...)` 吞掉，不报错；但若误把权限列当表单标志填错，会静默隐藏字段。
@@ -198,7 +199,7 @@ FROM 来源按顺序回退，第一个非空胜出：
 - **【硬规则 6.1】** `CBill::InitForm` 由表单名取 `IOBDZD_BH`，写入 `billdata.strPJLX`，并生成固定过滤器 ` and <表头表>_PJLX='<BH>'`。所有表头读写都带这个条件。**物理表头表必须有 `<表头表>_PJLX` 列，且每张单都写入正确的 `IOBDZD_BH`**；否则单据打开为空白、保存后“查不到自己”。
 - **【硬规则 6.2】** 单号由 `GenDanhao` → `exec dbo.[PRD_GETDANHAO] '<表单名>', @dat output`。过程缺失、`IOBDZD_FORMAT` 为空、月份/基数状态未初始化都会返回空串（不抛错）。`IOBDZD_BH` 还必须能作为唯一键反查 `IOBDZD_HTABLE`/`IOBDZD_MC`（`StartSP`/审批路径按 `IOBDZD_BH` 查），重复 `BH` 会静默取到别人的表。
 - **【硬规则 6.3】** 审核状态：源码多处直接比较 `<表头>_SHBZ="1"` 判断“已审核”。`SHBZ` 的取值与含义必须来自同版本 `LSDJZT` 字典 + `GLZD=LSDJZT_BH`；写成 `bit`/`C` 复选框或改掉 `1` 的含义会破坏审核、撤审、删除保护。
-- **【硬规则 6.4】** `BDJB` 的匹配键是**可见表单名**（`BDJB_PJLX = <表单名>`），不是 `IOBDZD_BH`。审核/撤审脚本写错键 → 零命中、无任何提示。
+- **【硬规则 6.4】** `BDJB` 的匹配键是**可见表单名**（`BDJB_PJLX = <表单名>`），不是 `IOBDZD_BH`。审核/撤审脚本写错键 → 零命中、无任何提示。四条基础审核/撤审规则必须成对存在；额外的业务校验、库存回写、资产注册/注销行允许存在，必须按顺序和反向路径审计，不能用总行数恰好为 4 作为门禁。
 - **【硬规则 6.5】** 审批流路径（`StartSP`）引用固定表 `SH1`、`SH2`、`SHDY1`、`SHDY2` 和 `<表头表>_SPID`。注册了审批定义（`SHDY1_BDDJ = IOBDZD_BH`）却没有这些表/列，会在提交时失败。
 - **【硬规则 6.6】** 按钮由 `sysmenu` 按 `sysmenu_bdmc = <表单名>` 构建，并按 `sysmenu_topfloor/sysmenu_submenu` 分成三组菜单；同时把 `IOYYGX`（`IOYYGX_BDMC=<表单名>`、`IOYYGX_YXBZ=1`、`GLTJ` 非空）的 `IOYYGX_CZMC` 合并进最后一级。缺行 → 按钮消失；`sysmenu_uid`/`sysmenu_pmenu` 写成空字符串而非空格会改变菜单挂载。
 - **【硬规则 6.7】** `BTYPE=1/UForm1` 的搜索按钮写死 `charindex('<输入>', 码表编号)>0` 和 `GetDataField(表名,' ',true)`。表单字段集必须能投影出别名 `码表编号`（以及 `码表` 路由下的 `码表名称`），否则搜索恒定报“列名 '码表编号' 无效”。这是**客户端范围**问题：不得用新增物理列去伪装。初始加载成功不代表搜索可用，两条路径必须分别回放。
@@ -258,9 +259,9 @@ order by SYSWSPACE_MC
 0. 已从 `SGSoft.vcxproj` 确认本次涉及的每个界面入口都在**已编译文件**里，且用的是 `v_tbcolumn`+`PO` 还是别的模型（见 0.1 与 8.1）。
 1. `DB_NAME()`、`@@SERVERNAME`、排序规则（必须 CI）已记录。
 2. 可见名在 `IOJCBDZD_MC`、`IOBDZD_MC`、`SYS_TbColumn.表名`、`SYSWSPACE_MC`、`sysmenu_bdmc` 五处一致且全局唯一。
-3. 路由键闭合：`GLZD → IOJCBDZD_MC`、`帮助 → IOJCBDZD_BZBH`、`IOBDZD_* → IOBDZD_MC/BH` 三组各自唯一命中。
+3. 查找键闭合：直接业务/表单路由 `IOJCBDZD_MC`、元数据关联 `GLZD → IOJCBDZD_Vkey`（按当前 `v_tbcolumn` 定义）、帮助 `帮助 → IOJCBDZD_BZBH`、单据 `IOBDZD_* → IOBDZD_MC/BH` 各自按实际消费者唯一命中；不得用一个键替代另一个键。
 4. `v_tbcolumn` 每行 `字段名`、`显示名`、`标签名` 非空；`标识` 为 `NULL`（除非同版本源码证明是 FF_BS）。
-5. `GLZD` 非空行的 `LMark`/`RMark` 为 `''` 或有效别名，`IOJCBDZD_Table/VKEY/BYZD` 非空，生成的 JOIN 可执行；且该行 `PO<=2`（否则 JOIN 不生成）。
+5. `GLZD` 非空行的 `LMark`/`RMark` 必须为非 NULL 的 `''` 或有效别名，`IOJCBDZD_Table/VKEY/BYZD` 非空，生成的 JOIN 可执行；且该行 `PO<=2`（否则 JOIN 不生成）。`NULL` 不是空别名：`GetGridCrossTable` 直接读取别名时会异常并把来源吞成空串，后续症状是 `FROM )`。
 6. 表头锚点后缀 `_ID/_SJDH/_YWRQ/_PJLX/_SHBZ/_ZDR/_SHR/_ZY` 各一条，且无其它字段名子串冲突。
 7. `PO=1` 每行 `控件`/`类型`/`RID`/布尔标志非空；控件码来自同版本源码 + 同库工作单据。
 8. 明细 `PO` 组 `顺序` 为 `1..n` 连续无重复，`顺序=1` 的 `字段名` 以 `<明细表名>_` 开头。
@@ -274,6 +275,7 @@ order by SYSWSPACE_MC
 16. `SYSWSPACE`：`BH` 长度在 `{4,6,8,10}`、父节点存在且为其前缀、`MX=1`、`BTN=0`、`LOC` 与同类一致；每个角色列真实存在并在**非 ADMIN 角色**下验证过可见性与 `AutoOpen` 放行。
 17. 需要打印时 `report` 有 `report_pjlx = 表单名` 行；需要期间过滤时 `SYSMONTH`/`LSZTXX` 有当前期间行。
 18. 空来源回放：`SELECT <GetDataField> FROM <GetCrossTable> WHERE 1=2` 与维护页、查询页、翻前单三种包装形状都能解析并返回 0 行。
+19. 完成部署后必须再执行用户级 skill 的 `scripts/audit_live_dynamic_bills.sql`，以目标库现存 `IOBDZD` 自动发现动态设备单据；静态生成器和单张单据验证不能替代全量 live scan。
 
 ---
 

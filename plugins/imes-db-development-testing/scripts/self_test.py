@@ -716,6 +716,59 @@ def test_eam_asset_field_closure_and_labels() -> None:
         raise AssertionError("missing metadata field must fail closed")
 
 
+def test_live_audit_script_structure() -> None:
+    """The live audit is the only check that sees already-deployed metadata.
+
+    It cannot be executed here (it needs a real target database), so guard its
+    structure instead: every expected check present, no check pinned to one
+    customer's column name, and the script still read-only.
+    """
+    import re
+
+    sql = (Path(__file__).resolve().parent / "audit_live_dynamic_bills.sql").read_text(
+        encoding="utf-8"
+    )
+
+    required = [
+        "ROUTE_VALUE", "ROUTE_MARK", "ROUTE_OBJECT",
+        "META_DATASET", "MAINT_HEADER_ORDER", "MAINT_DETAIL_ORDER", "QUERY_ORDER",
+        "META_PHYSICAL_FIELD", "FIELD_CLOSURE", "META_MARKER",
+        "META_NULL_RUNTIME_VALUE", "TYPE_CONTROL", "DATE_INIT",
+        "DETAIL_ALIAS", "QUERY_ANCHOR", "QUERY_ALIAS_DUPLICATE",
+        "RELATION_ROUTE", "RELATION_OBJECT", "RELATION_NULL_ALIAS",
+        "BDJB_BASE", "BDJB_SQL", "WORKSPACE", "SYSMENU",
+        "MIGRATED_REF_IN_BDJB", "MIGRATED_REF_IN_MODULE",
+        "MIGRATED_REF_IN_METADATA", "MIGRATED_REF_IN_RELATION",
+        "BDJB_UNKNOWN_IDENTIFIER",
+    ]
+    missing = [code for code in required if "'%s'" % code not in sql]
+    assert not missing, "live audit lost checks: %s" % missing
+
+    # A rename dependency must not be pinned to one customer's column name.
+    assert "OLD_PHYSICAL_FIELD" not in sql, "hardcoded single-column check came back"
+    assert "@MigratedColumns" in sql, "migration dependency map is missing"
+    executable = re.sub(r"/\*.*?\*/", "", sql, flags=re.S)
+    assert "INSERT @MigratedColumns" not in executable, (
+        "the audit must not ship one customer's renamed columns as a default"
+    )
+
+    # The unknown-identifier sweep must be a real identifier run-scan.
+    assert "SUBSTRING(s.Txt,b.n,1) LIKE N'[A-Za-z_]'" in sql
+    assert "NOT LIKE N'[A-Za-z0-9_]'" in sql
+
+    # Detail-page checks must cover every detail PO, not just PO=2.
+    assert "TRY_CONVERT(int,c.PO)>1" in sql, "detail checks are pinned to PO=2"
+
+    # Reporting must not be suppressed by a trailing THROW.
+    assert "AuditStatus" in sql
+    assert "THROW" not in executable, (
+        "a THROW would hide the findings the caller needs"
+    )
+
+    for verb in ("INSERT INTO dbo.", "UPDATE dbo.", "DELETE FROM dbo.", "DROP "):
+        assert verb not in sql, "live audit is not read-only: %s" % verb
+
+
 def main() -> int:
     test_first_pass_generator()
     test_rule_extractor()
@@ -724,6 +777,7 @@ def main() -> int:
     test_complex_form_scaffold()
     test_eam_asset_pjlx_contract()
     test_eam_asset_field_closure_and_labels()
+    test_live_audit_script_structure()
     print("All IMES database development and testing skill script tests passed.")
     return 0
 

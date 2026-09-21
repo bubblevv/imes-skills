@@ -526,10 +526,23 @@ Prompt shape: 用户报告字段帮助打不开、选择窗口一闪即关，或
 
 Pass criteria:
 
-- 区分 `GLZD` 关联路由查 `IOJCBDZD_MC`、字段 `帮助` 值查 `IOJCBDZD_BZBH`、单据路由查 `IOBDZD_MC`/`IOBDZD_BH` 三条独立键，不假设它们共用同一个键；
+- 先读取 `v_tbcolumn` 定义，证明当前元数据路径是 `SYS_TbColumn.GLZD = IOJCBDZD_Vkey`；再区分直接业务/表单路由查 `IOJCBDZD_MC`、字段 `帮助` 值查 `IOJCBDZD_BZBH`、单据路由查 `IOBDZD_MC`/`IOBDZD_BH`，不假设它们共用同一个键；
 - 对关闭即消失的窗口核对 `IOJCBDZD_VKEY`/`IOJCBDZD_BYZD`/`IOJCBDZD_TABLE` 是否非空，并识别源码在 `VKEY` 为空时直接 `OnCancel()` 的行为；
 - 不为 `GYSBZ`/`KHBZ`/`WLBZ` 这类源码内置帮助类型补 `IOJCBDZD` 表映射；
 - 验证时分别回放关联显示投影、帮助取数 SQL 和 `切换=1` 的 `BYZD→VKEY` 反查，确认反查唯一命中，避免保存后编号被写成空串。
+
+## 批量设备动态单据 live gate 与新增日期
+
+Prompt shape: 用户要求批量修改设备管理主从单据元数据，强调“快一点、不要测试”，随后发现新增日期不正确或部分单据仍报错，并要求完善 skill。
+
+Pass criteria:
+
+- 先核对项目锁定的测试数据库身份，再读取活动客户端 `SetBlank`、登录窗口 `AppData.adddate` 和 `v_tbcolumn` 视图定义；明确界面日期来自登录账务日期，`SYS_TbColumn.默认值` 不是初始化开关，物理 `GETDATE()` 只是保存兜底；
+- 执行自动从现存 `IOBDZD` 发现的 `audit_live_dynamic_bills.sql`，不接受只检查资产入库单或本次脚本手工列出的单据；审计器 SQL 编译/汇总错误本身即阻断；
+- 汇总所有失败表单和失败码，至少覆盖日期类型/默认、`LMark/RMark NULL`、明细“单号/分录号”、字段闭合、查询页锚点、BDJB、工作区和标准 sysmenu；不得只修首个错误或以 admin 打开代替检查；
+- 将数据库契约验证与真实客户端维护页、查询页、翻前单和新增保存冒烟分开报告；用户要求跳过测试时仍不能跳过只读 live gate 和失败汇总；
+- 对 skill 的路由键规则先读取 `v_tbcolumn` 定义，证明 `GLZD` 的实际消费者是 `IOJCBDZD_Vkey`，不能把 `IOJCBDZD_MC`、`IOJCBDZD_BZBH`、`IOBDZD_MC/BH` 混为一谈；
+- 运行 `quick_validate.py`、`scripts/self_test.py`，并保留项目诊断证据；在 live audit 未全量 PASS 前，交付状态必须为 `review-blocked`。
 
 ## 明细页物理表由顺序=1 字段锚定
 

@@ -885,7 +885,13 @@ def render_verification(
         cross_checks.append(f"IF (SELECT COUNT(*) FROM dbo.SYS_TbColumn WHERE 表名={qn(bill['visible_name'])} AND PO=N'1' AND 字段名={qn(bill['header']+'_SHBZ')} AND 切换=1 AND GLZD=N'LSDJZT_BH' AND 控件=N'E' AND 类型=N'S')<>1 THROW 56122,N'审核固定字段不完整。',1;")
         cross_checks.append(f"IF (SELECT COUNT(*) FROM dbo.SYS_TbColumn WHERE 表名={qn(bill['visible_name']+'查询')} AND PO=N'1' AND 关键字段=1)<>1 THROW 56123,N'查询页关键字段不唯一。',1;")
         cross_checks.append(f"IF (SELECT COUNT(*) FROM dbo.SYS_TbColumn WHERE 表名={qn(bill['visible_name']+'查询')})<>{len(qrows)} THROW 56124,N'查询页字段集不完整。',1;")
-        cross_checks.append(f"IF (SELECT COUNT(*) FROM dbo.BDJB WHERE BDJB_PJLX={qn(bill['visible_name'])} AND BDJB_YX=1)<>4 THROW 56125,N'审核和取消审核规则不完整。',1;")
+        cross_checks.append(
+            f"IF (SELECT COUNT(*) FROM dbo.BDJB WHERE BDJB_PJLX={qn(bill['visible_name'])} AND BDJB_YX=1 AND BDJB_CMD=N'审核' AND BDJB_QZJC=1 AND ISNULL(BDJB_ORDER,0)=0)<>1 OR "
+            f"(SELECT COUNT(*) FROM dbo.BDJB WHERE BDJB_PJLX={qn(bill['visible_name'])} AND BDJB_YX=1 AND BDJB_CMD=N'审核' AND BDJB_QZJC=0 AND ISNULL(BDJB_ORDER,0)=0)<>1 OR "
+            f"(SELECT COUNT(*) FROM dbo.BDJB WHERE BDJB_PJLX={qn(bill['visible_name'])} AND BDJB_YX=1 AND BDJB_CMD=N'取消审核' AND BDJB_QZJC=1 AND ISNULL(BDJB_ORDER,0)=0)<>1 OR "
+            f"(SELECT COUNT(*) FROM dbo.BDJB WHERE BDJB_PJLX={qn(bill['visible_name'])} AND BDJB_YX=1 AND BDJB_CMD=N'取消审核' AND BDJB_QZJC=0 AND ISNULL(BDJB_ORDER,0)=0)<>1 "
+            f"THROW 56125,N'审核和取消审核四条基础规则不完整。',1;"
+        )
         cross_checks.append(f"IF (SELECT COUNT(*) FROM dbo.sysmenu WHERE SYSMENU_BDMC={qn(bill['visible_name'])})<>{len(REQUIRED_SYSMENU)} THROW 56126,N'主从单据标准按钮不完整。',1;")
     workspace_codes = list(dict.fromkeys([x[1] for x in workspace_rows(basic, bills)] + [x[2] for x in workspace_rows(basic, bills) if x[2]]))
     return render_header(expected_database, expected_server) + f"""SELECT DB_NAME() AS CurrentDatabase,@@SERVERNAME AS CurrentServer;
@@ -902,7 +908,7 @@ IF EXISTS (SELECT 表名,PO,显示名 FROM dbo.SYS_TbColumn WHERE 表名 IN ({',
 IF EXISTS (SELECT 表名,PO,标签名 FROM dbo.SYS_TbColumn WHERE 表名 IN ({','.join(qn(x) for x in query_names)}) GROUP BY 表名,PO,标签名 HAVING COUNT(*)>1) THROW 56115,N'查询页标签名重复。',1;
 IF EXISTS (SELECT 1 FROM dbo.SYS_TbColumn m LEFT JOIN dbo.v_tbcolumn v ON v.nID=m.nID WHERE m.表名 IN ({','.join(qn(x) for x in all_meta_names)}) AND v.nID IS NULL) THROW 56108,N'v_tbcolumn 投影缺失。',1;
 {chr(10).join(width_checks)}
-IF EXISTS (SELECT 1 FROM dbo.v_tbcolumn WHERE 表名 IN ({','.join(qn(x) for x in all_meta_names)}) AND GLZD IS NOT NULL AND (IOJCBDZD_Table IS NULL OR IOJCBDZD_Vkey IS NULL OR LMark IS NULL OR RMark IS NULL)) THROW 56110,N'GLZD 关联映射不闭合。',1;
+IF EXISTS (SELECT 1 FROM dbo.v_tbcolumn WHERE 表名 IN ({','.join(qn(x) for x in all_meta_names)}) AND NULLIF(LTRIM(RTRIM(ISNULL(GLZD,N''))),N'') IS NOT NULL AND (IOJCBDZD_Table IS NULL OR IOJCBDZD_Vkey IS NULL OR LMark IS NULL OR RMark IS NULL)) THROW 56110,N'GLZD 关联映射不闭合；LMark/RMark 的 NULL 必须改为空字符串。',1;
 IF EXISTS (SELECT 1 FROM dbo.v_tbcolumn WHERE 表名 IN ({','.join(qn(x) for x in all_meta_names)}) AND (NULLIF(LTRIM(RTRIM(ISNULL(显示名,N''))),N'') IS NULL OR NULLIF(LTRIM(RTRIM(ISNULL(标签名,N''))),N'') IS NULL OR 显示名=字段名 OR 标签名=字段名)) THROW 56116,N'元数据存在空显示名/标签名或物理字段名回退。',1;
 DECLARE @ExpectedLabels TABLE(表名 nvarchar(100) NOT NULL,字段名 sysname NOT NULL,显示名 nvarchar(200) NOT NULL,标签名 nvarchar(100) NOT NULL,PRIMARY KEY(表名,字段名));
 INSERT @ExpectedLabels(表名,字段名,显示名,标签名) VALUES
