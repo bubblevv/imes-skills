@@ -12,13 +12,32 @@
 
 同一份源码版本内有效。更换客户端版本、分支或定制包后，必须重新按源码回放，不能沿用本文件结论。
 
+### 0.1 先确定哪些文件真的进了 EXE
+源码目录里有 232 个 `.cpp`，`SGSoft.vcxproj` 只编译其中 **194** 个。未参与编译的文件（`Sale.cpp`、`SaleBegin.cpp`、`SaleGet.cpp`、`BillFormD.cpp`、`BillOnlyForm.cpp`、`BaseGoodsUnit*.cpp`、`BaseFplx.cpp`、`BaseZYX.cpp`、`QuoteBill.cpp`、`PageRows.cpp`、`AppointMent.cpp`、`ReportKctz/Stock*/Stockwater.cpp`、`SysAuthoritySet.cpp`、`SegaSoftDoc.cpp`、`* - 副本.cpp` 等）**不影响运行时行为**：它们里面即使有更严格的契约，也只是历史代码。
+
+前置步骤：从 `SGSoft.vcxproj` 提取 `<ClCompile Include="...">` 列表，只在交集范围内取证。引用未编译文件里的表名、列名或别名去修数据库，会得到“按死代码修、真机照旧报错”的结果。
+
+```bash
+grep -o '<ClCompile Include="[^"]*"' SGSoft.vcxproj | sed 's/.*Include="//;s/"//' | sort > compiled.txt
+```
+
+本文件所有结论均取自该交集；下面标注「未编译」的路径仅作历史对照。
+
 ---
 
-## 0. 三条元规则
+## 0. 四条元规则
 
-1. **源码读不到的键不报错，只返回空串。** `GetStrTgValue` 取首行首列，没有行就是 `""`；空串被直接拼进 SQL，最终表现为 `FROM )`、`select  , ...`、`字段=''`。这类错误没有异常、没有堆栈，只能靠回放 SQL 定位。
-2. **表名/视图名大小写不保证一致。** `GetDataField` 用 `v_tbcolumn`，`GetCrossTable` 用 `V_TbColumn`，`UForm1` 用 `V_TBCOLUMN`。目标库排序规则必须是大小写不敏感（`Chinese_PRC_CI_AS` 一类）；若为 `_CS_`，同名不同大小写会直接报“对象名无效”。前置检查必须读 `DATABASEPROPERTYEX(DB_NAME(),'Collation')`。
-3. **同一业务对象有三个不同的键，不能混用。** 路由/关联用 `IOJCBDZD_MC`，帮助用 `IOJCBDZD_BZBH`，单据用 `IOBDZD_MC`（部分路径用 `IOBDZD_BH`）。键写错不报错，只取到空值。
+1. **先确定哪些文件真的进了 EXE。** 源码目录里有 232 个 `.cpp`，`SGSoft.vcxproj` 只编译其中 **194** 个。未参与编译的文件（`Sale.cpp`、`SaleBegin.cpp`、`SaleGet.cpp`、`BillFormD.cpp`、`BillOnlyForm.cpp`、`BaseGoodsUnit*.cpp`、`BaseFplx.cpp`、`BaseZYX.cpp`、`QuoteBill.cpp`、`PageRows.cpp`、`AppointMent.cpp`、`ReportKctz/Stock*/Stockwater.cpp`、`SysAuthoritySet.cpp`、`SegaSoftDoc.cpp`、`* - 副本.cpp` 等）**不影响运行时行为**：它们里面即使有更严格的契约，也只是历史代码。前置步骤是从 `SGSoft.vcxproj` 提取 `<ClCompile Include="...">` 列表，只在交集范围内取证；引用未编译文件里的表名、列名或别名去修数据库，会得到“按死代码修、真机照旧报错”的结果。
+
+   ```bash
+   grep -o '<ClCompile Include="[^"]*"' SGSoft.vcxproj | sed 's/.*Include="//;s/"//' | sort > compiled.txt
+   ```
+
+   本文件所有结论均取自该交集。
+
+2. **源码读不到的键不报错，只返回空串。** `GetStrTgValue` 取首行首列，没有行就是 `""`；空串被直接拼进 SQL，最终表现为 `FROM )`、`select  , ...`、`字段=''`。这类错误没有异常、没有堆栈，只能靠回放 SQL 定位。
+3. **表名/视图名大小写不保证一致。** `GetDataField` 用 `v_tbcolumn`，`GetCrossTable` 用 `V_TbColumn`，`UForm1` 用 `V_TBCOLUMN`。目标库排序规则必须是大小写不敏感（`Chinese_PRC_CI_AS` 一类）；若为 `_CS_`，同名不同大小写会直接报“对象名无效”。前置检查必须读 `DATABASEPROPERTYEX(DB_NAME(),'Collation')`。
+4. **同一业务对象有三个不同的键，不能混用。** 路由/关联用 `IOJCBDZD_MC`，帮助用 `IOJCBDZD_BZBH`，单据用 `IOBDZD_MC`（部分路径用 `IOBDZD_BH`）。键写错不报错，只取到空值。
 
 | 读取者 | 表 | 键列 | 取用列 |
 |---|---|---|---|
@@ -28,6 +47,21 @@
 | 单据跨表来源 `GetCrossTable` | `IOBDZD` | `IOBDZD_MC` = 表单名 | `HTable / FTable / HVkey / FVkey` |
 | 单据审批/编号 `StartSP` | `IOBDZD` | `IOBDZD_BH` | `HTABLE / MC` |
 | 单据初始化/权限 `CBill::InitForm` | `IOBDZD` | `IOBDZD_MC` = 表单名 | `BH / DJGL / HTABLE / FTable / …` |
+| 报表按钮 `CBill::InitForm` | `report` | `report_pjlx` = 表单名 | `report_mc` |
+| 报表设计器选项列表 `DlgProperty` | `IOJCBDZD` | `IOJCBDZD_BZBH` = 字段 `帮助` | `TABLE / VKEY / FILTER / BYZD` |
+
+### 0.2 表单打开的真实判定链（`CMainFrame::AutoOpen`）
+
+打开一个表单名时，源码按**固定顺序**判定，第一个命中的分支决定行为：
+
+1. `IsValid(当前角色, 表单名)` — 查 `SYSWSPACE` where `SYSWSPACE_MC = 角色 + 表单名`。**角色为 `ADMIN` 时直接放行**；查不到该行也**放行**（`GetBoolTgValue` 返回 false → `return true`）；查到且值为 0 → 弹“抱歉,您需要通过管理员授权。”并返回 false。
+2. 查 `IOBDZD where IOBDZD_MC = 表单名`，取 `MARK/HTABLE/FTABLE/BH/TAB1/TAB2/TAB3`。**`MARK` 非空 → 走动态单据**（`OpenBillStand`）。
+3. 否则查 `IOJCBDZD where IOJCBDZD_MC = 表单名` 的 `IOJCBDZD_BTYPE`：`'1'` → `UForm1` 单表；`'2'` → `UForm2` 分类树。
+4. 三个分支都不命中 → **`return false`，什么都不发生**：没有报错、没有窗口。菜单项点了没反应，通常就是这里。
+
+- **【硬规则 0.2.1】** 第 1 步的键是 **`SYSWSPACE_MC = 角色列名 + 表单名`** 的字符串拼接，不是单独的 `SYSWSPACE_MC`。角色列名本身又作为列名出现在同一条 SQL 里（`GetBoolTgValue(..., strRole, ...)`）。角色列不存在 → `_com_error` 被吞、返回 false → **静默放行**；这会让“本该受限的表单对所有人开放”，而不是报错。
+- **【硬规则 0.2.2】** `IOBDZD_MARK` 为空串会让第 2 步失败并回落到 `IOJCBDZD`。一张只有 `IOBDZD` 行、`MARK` 却为空的单据**不会走单据分支**，而是继续找 `IOJCBDZD_BTYPE`，最终 `return false`。
+- **【硬规则 0.2.3】** `CBill::InitForm` 在 `IOBDZD where IOBDZD_MC=表单名` **无行时 `return false`**（`adoEOF` 判定），并且它读的是 `IOBDZD_HTABLE`/`FTABLE`/`BH`/`TAB1..3` 六列——列缺失同样让 `OpenRecordsetStatic` 失败。
 
 ---
 
@@ -73,8 +107,24 @@ FROM 来源按顺序回退，第一个非空胜出：
 - **【硬规则 1.2.5】** `GetCrossTable` 的 `IOBDZD` 分支只认 `IOBDZD_MC`。表单名在 `IOBDZD` 里不存在时，若 `IOJCBDZD_MC` 也查不到表，FROM 为空 → 生成 `FROM )`。
 - **【硬规则 1.2.6】** `GetDataField` 的 `表名` 与物理表无关：它是 `SYS_TbColumn.表名`，可以是可见表单名、`<表单名>查询`、或 `BTYPE=2` 的 `LBNAME`/`MC`。`IOJCBDZD_MC`、`IOBDZD_MC`、`SYSWSPACE_MC`、`SYS_TbColumn.表名`、`sysmenu.sysmenu_bdmc` 必须使用**同一个可见名**。
 - **【硬规则 1.2.7】** 动态单据必须有独立的 `<表单名>查询` 字段集；`StartSP` 与单据查询页读取的是 `GetDataField(<表单名>查询, '', true)` 配 `GetCrossTable(<表单名>)`。缺这套元数据 → 查询页/审批条件 SQL 报列名无效。
+- **【硬规则 1.2.8】** `GetDataField` 与 `GetCrossTable` 是**两条独立查询**：前者按 `表名` 取字段清单，后者按 `表单名` 取 FROM 来源。`GetCrossTable` 只扫 `PO<=2` 且 `len(GLZD)>0` 的行——**`PO>=3` 的明细页签字段不参与跨表 JOIN**，它们的 `GLZD` 不会生成 JOIN。给第三个及以后页签写 `GLZD` 不会生效，也不会报错。
+- **【硬规则 1.2.9】** `GetDataField` 里 `LMark` 与 `RMark` 的用法**不对称**：`LMark` 用于关联表别名（加在 `IOJCBDZD_BYZD`/`字段名` 前），`RMark` 只出现在 `切换` 为假的分支。`bShowCovertName=false` 时只认 `LMark`，`RMark` 被忽略。同一个字段在两条入口下投影可能不同，必须按调用点分别回放。
+- **【硬规则 1.2.10】** 源码里同一查询写了三种大小写：`v_tbcolumn`、`V_TbColumn`、`V_TBCOLUMN`。它们必须在目标库里指向同一个可解析对象（视图或表），且库排序规则大小写不敏感。三者中任一被建成同名不同物的两个对象，会出现“有的界面正常、有的报列名无效”。
 
-### 1.3 两种空来源症状的区分
+### 1.3 字段投影的其它入口（同一套元数据、不同投影）
+
+| 入口 | 过滤 | 投影差异 |
+|---|---|---|
+| `GetDataField(表名, 过滤, true)` | 调用方给 | 见 1.1 |
+| `GetDataField(表名, 过滤, false)` | 调用方给 | 只用 `LMark` 前缀，不做 `切换`/`BYZD` 转换 |
+| `GetGroupField(表名, 过滤, true)` | 调用方给 | `标识` 非空的行**跳过**（不生成 `FF_BS` 聚合）；其余同 1.1 |
+| `GetCrossTable` | 固定 `PO<=2` | FROM 来源 + `GLZD` JOIN |
+| `GetCrossTableS` | 固定 `PO=1` | 同上，但只扫表头；`LMark` 为空分支**不加 `RMark` 前缀** |
+
+- **【硬规则 1.3.1】** `GetGroupField` 对 `标识` 非空的行是**直接丢弃**而不是聚合。同一个字段集在报表分组路径下会少列，若报表按 `显示名` 找列会失败。含 `标识` 的元数据不能假定在所有入口都出现。
+- **【硬规则 1.3.2】** `GetCrossTableS`（表头专用）在 `LMark` 为空时用 `字段名=IOJCBDZD_VKEY` 且**不加任何前缀**；`GetCrossTable` 在同一分支会加 `RMark.` 前缀。同一行元数据在两条路径生成的 JOIN 不同，回放时必须分开验证。
+
+### 1.4 两种空来源症状的区分
 
 | 生成结果 | 含义 |
 |---|---|
@@ -156,26 +206,74 @@ FROM 来源按顺序回退，第一个非空胜出：
 
 ---
 
+## 6A. 工作区、角色与权限（`SYSWSPACE`）
+
+工作区不是“菜单树装饰”，它是**表单可见性和打开权限的唯一来源**，而且规则全部写死在 `MainFrm.cpp` / `WorkspaceBar*.cpp` 的 SQL 里。
+
+源码实际执行的过滤（`CMainFrame::BuildWorkspaceTree` 与 `CWorkspaceBar::AddSubTree` 一类）：
+
+```sql
+select ... from SYSWSPACE
+where len(SYSWSPACE_BH) in (4,6,8,10) and SYSWSPACE_BTN=0
+  and SYSWSPACE_MX=1 and [<角色列>]=1 and SYSWSPACE_MC like '%<搜索词>%'
+order by SYSWSPACE_MC
+```
+
+- **【硬规则 6A.1】** `SYSWSPACE_BH` 的**长度就是层级**：`4` = 一级节点，`6` = 二级，`8` = 三级，`10` = 四级。子节点的 `BH` 必须是父节点 `BH` 加两位后缀，父节点由 `a.Mid(0, a.GetLength()-2)` 反查。长度不在 `{4,6,8,10}` 的节点**永远不出现在树里**——不报错，只是看不见。
+- **【硬规则 6A.2】** `SYSWSPACE_MX=1` 才是叶子（可打开的表单）；`MX=0` 是分组节点。`SYSWSPACE_BTN=0` 才是树节点，`BTN<>0` 是按钮类记录，不参与树构建。
+- **【硬规则 6A.3】** 可见性由**角色列**决定：`[<角色列>]=1`。角色列名来自登录用户的 `strRole`，直接作为列名拼进 SQL。列不存在 → `_com_error` → 该节点对所有人不可见（树构建里是静默失败）。角色列必须真实存在于 `SYSWSPACE`。
+- **【硬规则 6A.4】** `SYSWSPACE_MC` 同时承担两个职责：**树的显示文本**，以及 `AutoOpen` 权限判定里的 `SYSWSPACE_MC = 角色列名 + 表单名`。它必须与 `IOBDZD_MC`/`IOJCBDZD_MC`/`SYS_TbColumn.表名` 同名；改显示文本等于改权限键。
+- **【硬规则 6A.5】** `SYSWSPACE_LOC` 区分工作区类别（源码中出现 `LOC=1`、`LOC=3` 两套查询）。新节点必须放进与同类表单相同的 `LOC`，否则挂到另一棵树。
+- **【硬规则 6A.6】** 用户报表叶子额外要求 `SYSWSPACE_BH like '30%'`。报表类叶子放错编号段，右键/报表菜单找不到它。
+- **【硬规则 6A.7】** 权限查询失败是**放行**而非拒绝（`IsValid` 在 `GetBoolTgValue` 返回 false 时 `return true`）。因此“权限没配好”在 `ADMIN` 账号下完全看不出来，只在受限角色下暴露为“看不见”或“点不开”。任何权限结论必须在**非 ADMIN 角色**下验证。
+
+---
+
+## 6B. 其它被硬编码引用的系统表
+
+这些表名写死在已编译代码里，缺表或缺列会以“某个功能没反应/报列名无效”的形式出现：
+
+| 表 | 硬编码键列 | 取用列 | 消费方 |
+|---|---|---|---|
+| `report` | `report_pjlx` = 表单名 | `report_mc` | `CBill` 打印按钮列表、`DlgChoosePrint`、`ReportGdtc` |
+| `SYSFMA` | `SYSFMA_MC` + `SYSFMA_CFX` | `SYSFMA_mdx`、`SYSFMA_GS`、`SYSFMA_fxbz` | `CGridForm` 自定义计算公式 |
+| `SYSYHZD` | `SYSYHZD_BH` | `SYSYHZD_MC`、`SYSYHZD_YXBZ` | `SysAuthority` 角色/用户列表 |
+| `SYSMONTH` | `SYSMONTH_QJ` | `SYSMONTH_BEGIN`、`SYSMONTH_END` | 会计期间起止日期，几乎所有报表 |
+| `LSZTXX` | `LSZTXX_DQQJ` | — | 当前期间，与 `SYSMONTH` 联接 |
+| `SYSFILTERSET` | `SYSFILTERSET_TBNAME` + `_NO` | `_logic/_name/_relation/_value/_L/_R` | `CChooseScreen` 高级筛选方案 |
+| `SYS_TbColumn` | 表名 + **角色列名** | 全部 | `PrintView` 隐藏无权限列、`GroupSet` 分组汇总字段 |
+| `V_BALL` / `V_BALLWL` | `FF_WLBH` / `FF_DWBH` | `FF_SL`、`FF_JE`、`FF_FLAG`、`FF_SHBZ` … | 库存/往来余额视图，MRP、报表、选货窗口直接查 |
+
+- **【硬规则 6B.1】** 这些表都是**跨模块共享**的：注册一张新单据时如果顺手改了 `SYSMONTH`、`SYSYHZD` 或 `SYSFILTERSET`，影响面远超该单据。默认不动；确需修改时按全库影响面评估。
+- **【硬规则 6B.2】** `report` 的键是 `report_pjlx = 表单名`（与 `BDJB_PJLX` 同一约定）。打印按钮为空 = 该表单没有 `report` 行，不是权限问题。
+- **【硬规则 6B.3】** `PrintView` 与 `GroupSet` 都把**当前角色名当列名**查 `SYS_TbColumn`（`... and [<角色>]=0`）。因此 `SYS_TbColumn` 的角色列缺失会让“隐藏无权限列/分组字段”静默失效，而不是报错。
+- **【硬规则 6B.4】** `V_BALL`/`V_BALLWL` 是视图，列名一律 `FF_` 前缀，且 `FF_FLAG` 是红蓝字方向标志（`sum(FF_SL*FF_FLAG)`）。这些列由视图定义决定，不是业务表列；修业务表不会改变视图列。
+
+---
+
 ## 7. 建一个“合格表格/表单”的 fail-closed 清单
 
 生成 `forward.sql` 之前，逐条给出证据；任何一条拿不到证据就停，不要部署：
 
+0. 已从 `SGSoft.vcxproj` 确认本次涉及的每个界面入口都在**已编译文件**里，且用的是 `v_tbcolumn`+`PO` 还是别的模型（见 0.1 与 8.1）。
 1. `DB_NAME()`、`@@SERVERNAME`、排序规则（必须 CI）已记录。
 2. 可见名在 `IOJCBDZD_MC`、`IOBDZD_MC`、`SYS_TbColumn.表名`、`SYSWSPACE_MC`、`sysmenu_bdmc` 五处一致且全局唯一。
 3. 路由键闭合：`GLZD → IOJCBDZD_MC`、`帮助 → IOJCBDZD_BZBH`、`IOBDZD_* → IOBDZD_MC/BH` 三组各自唯一命中。
 4. `v_tbcolumn` 每行 `字段名`、`显示名`、`标签名` 非空；`标识` 为 `NULL`（除非同版本源码证明是 FF_BS）。
-5. `GLZD` 非空行的 `LMark`/`RMark` 为 `''` 或有效别名，`IOJCBDZD_Table/VKEY/BYZD` 非空，生成的 JOIN 可执行。
+5. `GLZD` 非空行的 `LMark`/`RMark` 为 `''` 或有效别名，`IOJCBDZD_Table/VKEY/BYZD` 非空，生成的 JOIN 可执行；且该行 `PO<=2`（否则 JOIN 不生成）。
 6. 表头锚点后缀 `_ID/_SJDH/_YWRQ/_PJLX/_SHBZ/_ZDR/_SHR/_ZY` 各一条，且无其它字段名子串冲突。
 7. `PO=1` 每行 `控件`/`类型`/`RID`/布尔标志非空；控件码来自同版本源码 + 同库工作单据。
 8. 明细 `PO` 组 `顺序` 为 `1..n` 连续无重复，`顺序=1` 的 `字段名` 以 `<明细表名>_` 开头。
 9. 明细字段集投影出 `单号`、`分录号`（且 `分录号` 可 `cast as int`）。
 10. 独立 `<表单名>查询` 字段集存在，`显示名` 唯一，含 `单号`、`日期` 锚点。
 11. `CBill` 固定字段卡齐全（`_ID/_YWRQ/_PJLX/_SJDH/_PRINT/_SHBZ/_ZDR/_SHR/_ZY` 与明细 `_ID/_SJDH/_FLH`），物理列与元数据同时存在。
-12. `IOBDZD` 的 `BH`/`MARK`/`FORMAT`/`HTABLE`/`FTable`/`Vkey` 齐全且唯一；编号过程 `PRD_GETDANHAO` 存在。
+12. `IOBDZD` 的 `BH`/`MARK`/`FORMAT`/`HTABLE`/`FTable`/`Vkey`/`TAB1..3` 齐全且唯一；`MARK` 非空（决定 `AutoOpen` 走不走单据分支）；编号过程 `PRD_GETDANHAO` 存在。
 13. `SHDY1/SHDY2/SH1/SH2/<表头>_SPID` 只在确实注册审批流时要求。
 14. `BDJB_PJLX` 用可见表单名；审核/撤审成对存在。
-15. `sysmenu` 七个标准按钮行齐全；`SYSWSPACE` 父/叶/操作行与角色授权齐全。
-16. 空来源回放：`SELECT <GetDataField> FROM <GetCrossTable> WHERE 1=2` 与维护页、查询页、翻前单三种包装形状都能解析并返回 0 行。
+15. `sysmenu` 七个标准按钮行齐全。
+16. `SYSWSPACE`：`BH` 长度在 `{4,6,8,10}`、父节点存在且为其前缀、`MX=1`、`BTN=0`、`LOC` 与同类一致；每个角色列真实存在并在**非 ADMIN 角色**下验证过可见性与 `AutoOpen` 放行。
+17. 需要打印时 `report` 有 `report_pjlx = 表单名` 行；需要期间过滤时 `SYSMONTH`/`LSZTXX` 有当前期间行。
+18. 空来源回放：`SELECT <GetDataField> FROM <GetCrossTable> WHERE 1=2` 与维护页、查询页、翻前单三种包装形状都能解析并返回 0 行。
 
 ---
 
@@ -199,6 +297,23 @@ FROM 来源按顺序回退，第一个非空胜出：
 | 审核/撤审没反应 | `BDJB_PJLX` 用了 `IOBDZD_BH` 而不是可见表单名 | `BDJB_PJLX` 与 `IOBDZD_MC` 逐行比对 |
 | 按钮缺失 | `sysmenu_bdmc` 不是可见表单名，或缺标准行 | `sysmenu` 该 `bdmc` 的行数与 `topfloor/submenu` 分组 |
 | SQL 报“对象名无效”，同名对象存在 | 库排序规则为 `_CS_` | `DATABASEPROPERTYEX(DB_NAME(),'Collation')` |
+| **点菜单完全没反应**（无报错、无窗口） | `AutoOpen` 四个分支全不命中：无 `IOBDZD_MARK`、无 `IOJCBDZD_BTYPE` | 按表单名分别查 `IOBDZD_MC` 与 `IOJCBDZD_MC`；确认 `IOBDZD_MARK` 非空 |
+| 工作区里看不到表单节点 | `SYSWSPACE_BH` 长度不在 `{4,6,8,10}`，或 `MX<>1`/`BTN<>0`/角色列 `<>1` | `LEN(SYSWSPACE_BH)`、`MX`、`BTN`、各角色列 |
+| 受限角色下点开提示“需要通过管理员授权” | `SYSWSPACE_MC = 角色名 + 表单名` 那行角色列为 0 | 按拼接名精确查该行 |
+| 本该受限的表单所有人都能打开 | 角色列不存在导致权限查询异常被吞、按放行处理 | 确认角色列真实存在于 `SYSWSPACE` |
+| 打印按钮列表为空 | `report` 无 `report_pjlx = 表单名` 行 | 按表单名查 `report` |
+| 报表/打印缺少列或列不隐藏 | `PrintView` 按 `SYS_TbColumn.表头=0` + 角色列过滤 | `SYS_TbColumn` 的 `表头` 列与角色列是否存在 |
+| 分组/汇总字段缺失 | `GroupSet` 丢弃 `标识` 非空的行 | 该 `表名` 下 `标识` 非空的行 |
+| 报表按显示名找不到列 | 同一字段集在 `GetGroupField` 下少列 | 对照 `GetDataField` 与 `GetGroupField` 两次投影 |
+| 会计期间/报表日期范围为空 | `SYSMONTH` 无 `SYSMONTH_QJ = 当前期间` 行，或 `LSZTXX_DQQJ` 不匹配 | `SYSMONTH` 与 `LSZTXX` 联接结果 |
+| 高级筛选方案打不开或为空 | `SYSFILTERSET` 无该 `TBNAME`/`NO` 行 | 按 `SYSFILTERSET_TBNAME` 查 |
+| 库存/往来金额对不上 | 视图 `V_BALL`/`V_BALLWL` 的 `FF_*` 列定义，而非业务表 | 读视图定义，确认 `FF_FLAG` 方向与 `FF_SHBZ` 过滤 |
+
+### 8.1 排除法：先确认不是死代码
+
+同一症状在**未编译**文件里可能有一套更“正确”的契约。例如 `Sale.cpp` 用 `v_fieldshow` + `strViewTable` + `表头=0/1` + 别名 `单号`/`fid`/`业务类型` 的一套完全不同的模型，但 `Sale.cpp` 不在编译列表里。若照它的契约去建表或补列，真机不会有任何变化。
+
+因此每次定位前先做一次归属判断：这个症状对应的界面入口在**哪个已编译文件**里，该文件用的是 `v_tbcolumn` 还是 `v_fieldshow`，是 `PO` 还是 `表头`。两套模型不能混用。
 
 ---
 

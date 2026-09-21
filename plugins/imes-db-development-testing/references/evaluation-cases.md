@@ -541,3 +541,14 @@ Pass criteria:
 - 断言明细 `顺序` 为 `1..n` 连续无重复，并说明它同时是 Grid 列下标（与 `BTYPE=1/UForm1` 的 0 基规则不同）；
 - 回放翻前单形状 `select * from (select … ) t where 单号=… order by cast(分录号 as int)`，确认 `单号`、`分录号` 别名存在且 `分录号` 可转整数；
 - `GetDataField(表单名,' and PO=<n> ',true)` 返回空时报告为该页签的初始化失败根因，不以补业务列收场。
+
+## 界面入口必须先确认在已编译文件里
+
+Prompt shape: 用户报告某功能按源码契约改数据库后无效果，或两个界面读同一份元数据但只有一个报错。
+
+Pass criteria:
+
+- 先从 `SGSoft.vcxproj` 的 `<ClCompile Include>` 列表确定界面入口所在文件是否参与编译，不以磁盘上存在该 `.cpp` 为依据；
+- 给出“入口 → 已编译文件 → 元数据表 → 投影函数”的链路，并指出未编译文件里并存的另一套模型（例如 `v_fieldshow` + `表头=0/1`）不能作为契约；
+- 区分 `GetDataField`、`GetGroupField`、`GetCrossTable`、`GetCrossTableS` 四个入口的投影差异（`标识` 非空行被丢弃、`PO<=2` 限制、无别名时不加 `RMark` 前缀）；
+- 修改后分别回放受影响入口的 SQL，并说明共享同一份元数据的其它入口是否也变化。

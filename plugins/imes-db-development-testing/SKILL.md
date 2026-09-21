@@ -37,6 +37,12 @@ description: Develop, test, or diagnose IMES SQL Server databases across custome
 15. **目标库排序规则必须是大小写不敏感。** 同一源码里 `v_tbcolumn`、`V_TbColumn`、`V_TBCOLUMN` 并存。
 16. **空来源必须回放验证。** 部署前执行 `SELECT <GetDataField> FROM <GetCrossTable> WHERE 1=2`，以及维护页、查询页、翻前单三种包装形状；`SELECT  FROM …` 与 `FROM )` 分别指向字段集为空和跨表来源为空，两者根因不同。
 17. **`BTYPE=1`、`BTYPE=2`、`IOBDZD` 三套规则不能互换**（`顺序` 基址、查询字段集、审核布局、按钮集各不相同）。
+18. **先确认界面入口在已编译文件里。** `SGSoft.vcxproj` 只编译部分 `.cpp`；未参与编译的文件（`Sale.cpp`、`BillFormD.cpp`、`BillOnlyForm.cpp`、`BaseGoodsUnit*.cpp` 等）是死代码，照它们里面的契约去改数据库不会有任何效果。取证范围必须先收敛到 `<ClCompile Include>` 列表。
+19. **菜单点了没反应 = `AutoOpen` 四个分支全不命中。** 判定顺序是 `IsValid` 权限 → `IOBDZD.MARK` 非空 → `IOJCBDZD_BTYPE`；三者都不成立时源码静默 `return false`。`IOBDZD_MARK` 为空会让单据分支被跳过。
+20. **`SYSWSPACE` 是权限与可见性的唯一来源，且规则写死。** `LEN(SYSWSPACE_BH)` 必须是 `4/6/8/10`（即层级），子节点 `BH` 是父节点加两位；`MX=1` 才是叶子、`BTN=0` 才进树；可见性看**角色列** `[角色]=1`。权限查询异常时源码按**放行**处理，所以权限问题必须在**非 ADMIN 角色**下验证。
+21. **工作区权限键是字符串拼接 `SYSWSPACE_MC = 角色名 + 表单名`**，不是单独的 `SYSWSPACE_MC`。改显示文本等于改权限键。
+22. **`report` / `SYSFMA` / `SYSYHZD` / `SYSMONTH` / `LSZTXX` / `SYSFILTERSET` / `V_BALL` / `V_BALLWL` 都被写死引用**（分别决定打印按钮、自定义公式、角色列表、会计期间、筛选方案、库存与往来金额）。注册新表单时默认不动这些跨模块共享表；打印按钮为空先查 `report.report_pjlx = 表单名`。
+23. **同一字段集在不同入口投影不同。** `GetGroupField` 会**丢弃** `标识` 非空的行（不是聚合），`GetCrossTableS` 在 `LMark` 为空时不加 `RMark` 前缀，`GetCrossTable` 只扫 `PO<=2`。改元数据前必须列出该字段集被哪些入口消费。
 
 ## GLZD/LMark/RMark 关联显示契约
 
