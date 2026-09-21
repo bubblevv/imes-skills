@@ -756,6 +756,20 @@ def test_live_audit_script_structure() -> None:
     assert "SUBSTRING(s.Txt,b.n,1) LIKE N'[A-Za-z_]'" in sql
     assert "NOT LIKE N'[A-Za-z0-9_]'" in sql
 
+    # @Nums has exactly one column, n. Correlating on any other alias makes the
+    # script fail to compile, so every @Nums reference must use n.
+    nums_body = re.search(r"DECLARE @Nums TABLE\s*\(([^)]*)\)", sql, re.S)
+    assert nums_body, "@Nums declaration missing"
+    nums_first_column = re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)", nums_body.group(1))
+    assert nums_first_column and nums_first_column.group(1) == "n", (
+        "@Nums must be keyed on a single column named n"
+    )
+    assert "," not in nums_body.group(1), "@Nums must declare exactly one column"
+    for ref in re.findall(r"SUBSTRING\(s\.Txt,b\.n\+([A-Za-z_][A-Za-z0-9_]*),1\)", sql):
+        assert ref == "n", (
+            "@Nums is correlated on %r but its only column is n" % ref
+        )
+
     # Detail-page checks must cover every detail PO, not just PO=2.
     assert "TRY_CONVERT(int,c.PO)>1" in sql, "detail checks are pinned to PO=2"
 

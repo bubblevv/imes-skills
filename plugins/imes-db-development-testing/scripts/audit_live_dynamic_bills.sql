@@ -442,8 +442,8 @@ CROSS APPLY
     FROM @Nums AS b
     CROSS APPLY
     (
-        SELECT MIN(k) AS L FROM @Nums
-        WHERE k<=64 AND SUBSTRING(s.Txt,b.n+k,1) NOT LIKE N'[A-Za-z0-9_]'
+        SELECT MIN(n) AS L FROM @Nums
+        WHERE n<=64 AND SUBSTRING(s.Txt,b.n+n,1) NOT LIKE N'[A-Za-z0-9_]'
     ) AS fwd
     WHERE b.n<=LEN(s.Txt)
       AND SUBSTRING(s.Txt,b.n,1) LIKE N'[A-Za-z_]'
