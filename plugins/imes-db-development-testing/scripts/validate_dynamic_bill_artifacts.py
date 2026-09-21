@@ -19,6 +19,12 @@ except ImportError:  # pragma: no cover
     from .metadata_width import label_column_width
 
 FIXED_HEADER_SUFFIXES = ("_SHBZ", "_PJLX", "_ZDR", "_SHR", "_ZY")
+# CreateDlgItemWithArrayDateTime locates runtime anchor controls with a
+# substring search on 字段名 (strField.Find("_SJDH") > 0).  Any extra field that
+# contains the same substring steals the anchor, and the later 顺序 wins.
+HEADER_ANCHOR_SUFFIXES = (
+    "_ID", "_SJDH", "_YWRQ", "_PJLX", "_SHBZ", "_ZDR", "_SHR", "_ZY",
+)
 # Proven by the active BCGPEdit implementation.  A custom browse image may
 # increase this to max(20, image_width + 8); callers can pass that measurement.
 DEFAULT_BROWSE_BUTTON_WIDTH = 20
@@ -340,10 +346,13 @@ def validate_forward(path: Path, expected_rid_start: int | None = None, expected
                             and _sql_string_value(values[column_index["帮助"]]).strip().upper() != "NULL"
                         ) if "帮助" in column_index else False,
                     })
-            group = metadata_groups.setdefault((table_name, po), {"primary": 0, "key": 0, "orders": []})
+            group = metadata_groups.setdefault((table_name, po), {"primary": 0, "key": 0, "orders": [], "fields": []})
             orders = group["orders"]
             assert isinstance(orders, list)
             orders.append(order)
+            fields = group["fields"]
+            assert isinstance(fields, list)
+            fields.append(field_name)
             if primary == "1":
                 group["primary"] += 1
             if key_field == "1":
@@ -379,6 +388,43 @@ def validate_forward(path: Path, expected_rid_start: int | None = None, expected
                 rid_offsets.append(int(dynamic.group(1)))
             else:
                 errors.append(f"SYS_TbColumn INSERT {insert_no} tuple {row_no}: RID 不是整数或 @RIDBase+offset: {rid}")
+
+            # GetCrossTable concatenates LMark/RMark straight into the LEFT JOIN.
+            # A NULL alias becomes the literal text NULL and the join becomes
+            # unexecutable, so an empty alias must be written as ''.
+            if "GLZD" in column_index:
+                glzd = _sql_string_value(values[column_index["GLZD"]]).strip()
+                if glzd and glzd.upper() != "NULL":
+                    for alias_column in ("LMark", "RMark"):
+                        if alias_column not in column_index:
+                            continue
+                        token = values[column_index[alias_column]].strip()
+                        if token.upper() == "NULL":
+                            errors.append(
+                                f"SYS_TbColumn INSERT {insert_no} tuple {row_no}: 字段 {field_name} 的 GLZD 非空时"
+                                f" {alias_column} 必须写空字符串 ''，不能为 NULL"
+                            )
+
+    # The header-control creation path finds runtime anchors by substring, and a
+    # later 顺序 overwrites the earlier match.  Exactly one row may carry each
+    # anchor substring, and it must be the suffix the rest of the client expects.
+    for (table_name, po), group in sorted(metadata_groups.items()):
+        if po != "1" or table_name.endswith("查询"):
+            continue
+        fields = [str(name) for name in group.get("fields", [])]
+        for suffix in HEADER_ANCHOR_SUFFIXES:
+            matches = [name for name in fields if suffix in name.upper()]
+            if len(matches) > 1:
+                errors.append(
+                    f"SYS_TbColumn {table_name}/PO=1: 锚点 {suffix} 命中多条字段 {','.join(matches)}，"
+                    "客户端只保留顺序靠后的一条"
+                )
+                continue
+            if matches and not matches[0].upper().endswith(suffix):
+                errors.append(
+                    f"SYS_TbColumn {table_name}/PO=1: 字段 {matches[0]} 含锚点子串 {suffix} 但不以其结尾，"
+                    "会被客户端误当作运行锚点"
+                )
 
     for table_name, rows in sorted(header_layout.items()):
         audits = [row for row in rows if str(row["field"]).upper().endswith("_SHBZ") and row["visible"]]

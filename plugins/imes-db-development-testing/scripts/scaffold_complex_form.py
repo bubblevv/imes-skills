@@ -668,7 +668,31 @@ def render_preflight(c: dict[str, Any]) -> str:
     for role in ("header", "detail"):
         table = c[role]["table"]
         lines += [f"SELECT N'{role}' AS TableRole,c.name,TYPE_NAME(c.user_type_id) AS DataType,c.max_length,c.is_nullable,c.column_id", "FROM sys.columns c", f"WHERE c.object_id=OBJECT_ID(N'dbo.{table}',N'U') ORDER BY c.column_id;", ""]
-    lines += ["IF OBJECT_ID(N'dbo.IOBDZD',N'U') IS NULL THROW 54101,N'IOBDZD 缺失。',1;", "IF OBJECT_ID(N'dbo.SYS_TbColumn',N'U') IS NULL THROW 54102,N'SYS_TbColumn 缺失。',1;", "IF OBJECT_ID(N'dbo.sysmenu',N'U') IS NULL THROW 54103,N'sysmenu 缺失。',1;", f"IF EXISTS (SELECT 1 FROM dbo.IOBDZD WHERE IOBDZD_MARK={qn(c['route']['mark'])}) THROW 54104,N'IOBDZD_MARK 已被占用，必须先只读盘点同类路由再分配。',1;", f"IF EXISTS (SELECT 1 FROM dbo.IOBDZD WHERE IOBDZD_BH={qn(c['route']['bh'])}) THROW 54105,N'IOBDZD_BH 已存在，同类表单应共用类前缀并按序列号向下排。',1;", "SELECT IOBDZD_BH,IOBDZD_MC,IOBDZD_MARK FROM dbo.IOBDZD ORDER BY IOBDZD_BH,IOBDZD_MC;", f"SELECT IOBDZD_BH,IOBDZD_MC,IOBDZD_MARK,IOBDZD_FORMAT,IOBDZD_BILLNO,IOBDZD_BascData,IOBDZD_CurMonth,IOBDZD_ModifyDate,IOBDZD_HTABLE,IOBDZD_FTABLE,IOBDZD_HVKEY,IOBDZD_FVKEY FROM dbo.IOBDZD WHERE IOBDZD_MC IN ({qn(c.get('bill_name',''))},{qn(str(c.get('bill_name',''))+'查询')});", f"SELECT * FROM dbo.SYS_TbColumn WHERE 表名 IN ({qn(c.get('bill_name',''))},{qn(str(c.get('bill_name',''))+'查询')}) ORDER BY 表名,TRY_CONVERT(int,PO),顺序,字段名;", f"SELECT * FROM dbo.sysmenu WHERE sysmenu_bdmc={qn(c.get('bill_name',''))} ORDER BY sysmenu_topfloor,sysmenu_submenu,sysmenu_xh,sysmenu_buttonname;", "SELECT N'PREFLIGHT_REVIEW_COMPLETE' AS Status;"]
+    route = c.get("route") or {}
+    mark = str(route.get("mark") or "").strip()
+    bh = str(route.get("bh") or "").strip()
+    # A review-blocked draft has no confirmed route identity yet.  Keep the
+    # preflight renderable and fail closed with an explicit message instead of
+    # raising KeyError, so the reviewer still receives the whole package.
+    lines.append("IF OBJECT_ID(N'dbo.IOBDZD',N'U') IS NULL THROW 54101,N'IOBDZD 缺失。',1;")
+    lines.append("IF OBJECT_ID(N'dbo.SYS_TbColumn',N'U') IS NULL THROW 54102,N'SYS_TbColumn 缺失。',1;")
+    lines.append("IF OBJECT_ID(N'dbo.sysmenu',N'U') IS NULL THROW 54103,N'sysmenu 缺失。',1;")
+    for column, value, code, message in (
+        ("IOBDZD_MARK", mark, 54104, "IOBDZD_MARK 未确认：必须是恰好两个英文字母且在整张 IOBDZD 中唯一。"),
+        ("IOBDZD_BH", bh, 54105, "IOBDZD_BH 未确认：必须先只读盘点同类路由，再按类前缀加最小未用序号分配。"),
+    ):
+        if value:
+            lines.append(
+                f"IF EXISTS (SELECT 1 FROM dbo.IOBDZD WHERE {column}={qn(value)}) THROW {code},"
+                + (
+                    "N'IOBDZD_MARK 已被占用，必须先只读盘点同类路由再分配。',1;"
+                    if column == "IOBDZD_MARK"
+                    else "N'IOBDZD_BH 已存在，同类表单应共用类前缀并按序列号向下排。',1;"
+                )
+            )
+        else:
+            lines.append(f"THROW {code},N'{message}',1;")
+    lines += [f"SELECT IOBDZD_BH,IOBDZD_MC,IOBDZD_MARK,IOBDZD_FORMAT,IOBDZD_BILLNO,IOBDZD_BascData,IOBDZD_CurMonth,IOBDZD_ModifyDate,IOBDZD_HTABLE,IOBDZD_FTABLE,IOBDZD_HVKEY,IOBDZD_FVKEY FROM dbo.IOBDZD WHERE IOBDZD_MC IN ({qn(c.get('bill_name',''))},{qn(str(c.get('bill_name',''))+'查询')});", f"SELECT * FROM dbo.SYS_TbColumn WHERE 表名 IN ({qn(c.get('bill_name',''))},{qn(str(c.get('bill_name',''))+'查询')}) ORDER BY 表名,TRY_CONVERT(int,PO),顺序,字段名;", f"SELECT * FROM dbo.sysmenu WHERE sysmenu_bdmc={qn(c.get('bill_name',''))} ORDER BY sysmenu_topfloor,sysmenu_submenu,sysmenu_xh,sysmenu_buttonname;", "SELECT N'PREFLIGHT_REVIEW_COMPLETE' AS Status;"]
     return "\n".join(lines) + "\n"
 
 

@@ -229,6 +229,48 @@ def test_dynamic_bill_contract_and_artifacts() -> None:
         order_errors = validate_dynamic_bill_artifacts.validate_forward(bad_order_path)
     assert any("顺序必须从 1 连续编号" in error for error in order_errors)
 
+    # CreateDlgItemWithArrayDateTime locates runtime anchors by substring on
+    # 字段名, so a second row carrying the same substring wins silently.
+    anchor_values = list(values)
+    anchor_values[0] = "N'TESTBILL'"
+    anchor_values[1] = "N'1'"
+    anchor_values[2] = "N'TESTBILL_SJDH'"
+    anchor_values[3] = "1"
+    anchor_values[5] = "N'单号'"
+    anchor_values[6] = "N'单号'"
+    anchor_values[8] = "0"
+    anchor_values[10] = "1"
+    anchor_values[28] = "NULL"
+    anchor_values[31] = "1"
+    duplicate_anchor = list(anchor_values)
+    duplicate_anchor[2] = "N'TESTBILL_SJDH_X'"
+    duplicate_anchor[10] = "2"
+    with tempfile.TemporaryDirectory() as temp_dir:
+        anchor_path = Path(temp_dir) / "duplicate-anchor.sql"
+        anchor_path.write_text(
+            "INSERT INTO dbo.SYS_TbColumn (" + ",".join(f"[{name}]" for name in columns) + ") VALUES ("
+            + ",".join(anchor_values) + "),(" + ",".join(duplicate_anchor) + ");\n",
+            encoding="utf-8",
+        )
+        anchor_errors = validate_dynamic_bill_artifacts.validate_forward(anchor_path)
+    assert any("锚点 _SJDH 命中多条字段" in error for error in anchor_errors)
+
+    # GetCrossTable concatenates the alias columns straight into the LEFT JOIN;
+    # a NULL alias breaks the generated FROM clause.
+    alias_values = list(anchor_values)
+    alias_values[24] = "N'物料信息'"
+    alias_values[25] = "NULL"
+    with tempfile.TemporaryDirectory() as temp_dir:
+        alias_path = Path(temp_dir) / "null-alias.sql"
+        alias_path.write_text(
+            "INSERT INTO dbo.SYS_TbColumn (" + ",".join(f"[{name}]" for name in columns) + ") VALUES ("
+            + ",".join(alias_values)
+            + ");\n",
+            encoding="utf-8",
+        )
+        alias_errors = validate_dynamic_bill_artifacts.validate_forward(alias_path)
+    assert any("LMark 必须写空字符串" in error for error in alias_errors)
+
 
 def test_basic_form_scaffold() -> None:
     assert scaffold_basic_form.label_column_width("分录号") == 840
