@@ -3,10 +3,20 @@ SET XACT_ABORT ON;
 
 /*
     Read-only live audit for metadata-backed header/detail bills.
-    The scope is discovered from IOBDZD: EAM tables plus forms explicitly named
-    as equipment forms. It intentionally does not infer scope from a generated
-    script's hand-maintained bill list.
+
+    Scope is declared by the caller, never inferred from a generated script's
+    hand-maintained bill list.  Populate @Scope before running:
+
+        -- one module
+        INSERT @Scope (TableLike,NameLike) VALUES (N'EAM%',N'%设备%');
+        -- every route in the database
+        INSERT @Scope (TableLike,NameLike) VALUES (N'%',N'%');
+
+    An empty @Scope audits nothing, which is the fail-closed default: a caller
+    that forgot to declare scope gets no findings rather than a false PASS.
 */
+
+DECLARE @Scope TABLE (TableLike nvarchar(100) NOT NULL, NameLike nvarchar(100) NOT NULL);
 
 DECLARE @Forms TABLE
 (
@@ -39,9 +49,13 @@ SELECT
     d.IOBDZD_ID,d.IOBDZD_MC,d.IOBDZD_BH,d.IOBDZD_MARK,
     d.IOBDZD_HTABLE,d.IOBDZD_FTABLE,d.IOBDZD_HVKEY,d.IOBDZD_FVKEY
 FROM dbo.IOBDZD AS d
-WHERE d.IOBDZD_HTABLE LIKE N'EAM%'
-   OR d.IOBDZD_FTABLE LIKE N'EAM%'
-   OR d.IOBDZD_MC LIKE N'%设备%';
+WHERE EXISTS
+      (
+          SELECT 1 FROM @Scope AS s
+          WHERE d.IOBDZD_HTABLE LIKE s.TableLike
+             OR d.IOBDZD_FTABLE LIKE s.TableLike
+             OR d.IOBDZD_MC    LIKE s.NameLike
+      );
 
 /*
     Migration dependency inventory.
@@ -189,11 +203,18 @@ WHERE NULLIF(LTRIM(RTRIM(ISNULL(c.[字段名],N''))),N'') IS NULL
    OR NULLIF(LTRIM(RTRIM(ISNULL(c.[控件],N''))),N'') IS NULL
    OR c.RID IS NULL OR c.RID<=0;
 
+/*
+    The FF_BS trigger is a non-empty 标识.  The client tests GetLength()>0, so an
+    empty string behaves exactly like NULL and must not be reported; 8845 rows in
+    a typical deployment are empty strings, and flagging them buries the real
+    findings.  Only a genuinely non-empty marker emits the sum(case FF_BS ...)
+    projection.
+*/
 INSERT @Findings
-SELECT 'FAIL',c.[表名],'META_MARKER',N'普通动态单据字段的标识必须为 NULL。字段：'+ISNULL(c.[字段名],N'<NULL>')
+SELECT 'FAIL',c.[表名],'META_MARKER',N'普通动态单据字段的标识非空，会触发 FF_BS 聚合。字段：'+ISNULL(c.[字段名],N'<NULL>')
 FROM dbo.v_tbcolumn AS c
 JOIN @Forms AS f ON f.FormName=c.[表名] OR f.FormName+N'查询'=c.[表名]
-WHERE c.[标识] IS NOT NULL;
+WHERE NULLIF(c.[标识],N'') IS NOT NULL;
 
 /* Fixed aliases and the detail-page outer predicate. */
 INSERT @Findings
@@ -449,10 +470,23 @@ CROSS APPLY
       AND SUBSTRING(s.Txt,b.n,1) LIKE N'[A-Za-z_]'
       AND (b.n=1 OR SUBSTRING(s.Txt,b.n-1,1) NOT LIKE N'[A-Za-z0-9_]')
 ) AS tok
+JOIN @Forms AS f ON f.FormName=d.BDJB_PJLX
+CROSS APPLY
+(
+    SELECT HeaderObjectId=OBJECT_ID(N'dbo.'+f.HeaderTable,N'U'),
+           DetailObjectId=OBJECT_ID(N'dbo.'+f.DetailTable,N'U')
+) AS obj
 WHERE d.BDJB_YX=1
   AND tok.Token LIKE N'%[_]%'
   AND LEN(tok.Token)>=4
-  AND NOT EXISTS (SELECT 1 FROM @KnownColumns AS k WHERE k.ColumnName=tok.Token);
+  AND (tok.Token LIKE f.HeaderTable+N'[_]%' OR tok.Token LIKE f.DetailTable+N'[_]%')
+  AND NOT EXISTS
+      (
+          SELECT 1
+          FROM sys.columns AS c
+          WHERE c.object_id IN (obj.HeaderObjectId,obj.DetailObjectId)
+            AND c.name=tok.Token
+      );
 
 /* Emit compact results first; consumers can fail the deployment on any FAIL. */
 SELECT Severity,FormName,CheckCode,Detail
@@ -483,5 +517,3 @@ SELECT
     CASE WHEN EXISTS (SELECT 1 FROM @Findings WHERE Severity='FAIL')
          THEN N'动态单据 live metadata audit failed; deployment is blocked.'
          ELSE N'LIVE_DYNAMIC_BILL_AUDIT_PASS' END AS Result;
-
-SELECT N'LIVE_DYNAMIC_BILL_AUDIT_PASS' AS Result;

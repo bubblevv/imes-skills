@@ -773,6 +773,17 @@ def test_live_audit_script_structure() -> None:
     # Detail-page checks must cover every detail PO, not just PO=2.
     assert "TRY_CONVERT(int,c.PO)>1" in sql, "detail checks are pinned to PO=2"
 
+    # Scope must be caller-declared, not hardcoded to one module.
+    assert "DECLARE @Scope TABLE" in sql, "audit scope is not parameterized"
+    assert "@Scope" in sql and "FROM @Scope AS s" in sql
+    for pinned in ("LIKE N'EAM%'", "LIKE N'%设备%'"):
+        assert pinned not in sql, "audit scope is pinned to one module: %s" % pinned
+
+    # 标识 triggers FF_BS only when non-empty; an empty string behaves as NULL.
+    assert "NULLIF(c.[标识],N'') IS NOT NULL" in sql, (
+        "marker check must ignore empty-string markers"
+    )
+
     # Reporting must not be suppressed by a trailing THROW.
     assert "AuditStatus" in sql
     assert "THROW" not in executable, (
