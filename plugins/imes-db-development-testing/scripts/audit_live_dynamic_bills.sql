@@ -216,7 +216,14 @@ FROM dbo.v_tbcolumn AS c
 JOIN @Forms AS f ON f.FormName=c.[表名] OR f.FormName+N'查询'=c.[表名]
 WHERE NULLIF(c.[标识],N'') IS NOT NULL;
 
-/* Fixed aliases and the detail-page outer predicate. */
+/*
+    Fixed aliases and the detail-page outer predicate.
+
+    Each detail tab has its own physical table, so the document-number column
+    differs per PO (SCDD2_SJDH on tab 2, SCDD3_SJDH on tab 3).  Requiring
+    IOBDZD_FTABLE here would wrongly flag every tab after the first, so the
+    check is driven by the alias the client actually filters on.
+*/
 INSERT @Findings
 SELECT 'FAIL',f.FormName,'DETAIL_ALIAS',
        N'维护页明细页签 '+pg.PO+N' 必须恰好有“单号”和“分录号”两个固定别名。'
@@ -227,8 +234,12 @@ CROSS APPLY
     FROM dbo.v_tbcolumn AS c
     WHERE c.[表名]=f.FormName AND TRY_CONVERT(int,c.PO)>1
 ) AS pg
-WHERE (SELECT COUNT(*) FROM dbo.v_tbcolumn WHERE [表名]=f.FormName AND PO=pg.PO AND [字段名]=f.DetailTable+N'_SJDH' AND [显示名]=N'单号' AND [标签名]=N'单号')<>1
-   OR (SELECT COUNT(*) FROM dbo.v_tbcolumn WHERE [表名]=f.FormName AND PO=pg.PO AND [显示名]=N'分录号' AND [标签名]=N'分录号')<>1;
+WHERE (SELECT COUNT(*) FROM dbo.v_tbcolumn
+       WHERE [表名]=f.FormName AND PO=pg.PO
+         AND [字段名] LIKE N'%[_]SJDH' AND [显示名]=N'单号' AND [标签名]=N'单号')<>1
+   OR (SELECT COUNT(*) FROM dbo.v_tbcolumn
+       WHERE [表名]=f.FormName AND PO=pg.PO
+         AND [显示名]=N'分录号' AND [标签名]=N'分录号')<>1;
 
 INSERT @Findings
 SELECT 'FAIL',f.FormName,'QUERY_ANCHOR',N'查询页表头日期/单号必须各有一个可见必填锚点，且不能用明细字段替代。'

@@ -773,6 +773,13 @@ def test_live_audit_script_structure() -> None:
     # Detail-page checks must cover every detail PO, not just PO=2.
     assert "TRY_CONVERT(int,c.PO)>1" in sql, "detail checks are pinned to PO=2"
 
+    # Each detail tab has its own physical table, so the document-number column
+    # differs per PO.  Matching on IOBDZD_FTABLE flags every tab after the first.
+    assert "f.DetailTable+N'_SJDH'" not in sql, (
+        "detail alias check must match the alias, not the first detail table"
+    )
+    assert "[字段名] LIKE N'%[_]SJDH'" in sql
+
     # Scope must be caller-declared, not hardcoded to one module.
     assert "DECLARE @Scope TABLE" in sql, "audit scope is not parameterized"
     assert "@Scope" in sql and "FROM @Scope AS s" in sql
