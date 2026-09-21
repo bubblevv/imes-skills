@@ -389,6 +389,11 @@ def test_basic_form_scaffold() -> None:
     assert "新生成元数据控件必须全部为 E" in verification
     assert "新生成元数据类型必须与物理日期类型一致" in verification
     assert "BTYPE=1 每个表名与 PO 的顺序必须从 0 连续编号" in verification
+    # LoadGridSet falls back to width 100 when 列宽 is 0, silently truncating the
+    # label, so a visible field with a non-positive width must fail verification.
+    assert "可见字段列宽必须显式给出正整数" in verification
+    assert "TRY_CONVERT(int,[显示])=1" in verification
+    assert "IF EXISTS (SELECT 1 FROM [dbo].[SYS_TbColumn] WHERE [表名]=N'TestWorkshop' AND COALESCE([控件]" in verification
     assert ",420,0,0,0," in scaffold_basic_form.meta_tuple(normalized, normalized["fields"][0], 0)
     assert ",570,1,0,0," in scaffold_basic_form.meta_tuple(normalized, normalized["fields"][1], 1)
 

@@ -419,9 +419,9 @@ Symptom: a newly generated form contains nullable or inconsistent `控件`/role 
 
 Likely cause pattern: the generator copied only a few reference values and treated detail Grid metadata as if it used the header control factory.
 
-Safe fix pattern: for newly inserted dynamic `SYS_TbColumn` rows, use `类型='D'` for physical `date`/`datetime`/`datetime2` fields and `类型='S'` for all others; ordinary fields use `控件='E'`, while `*_PJLX`/voucher-type fields use `控件='S'`. Do not derive `N`, `C`, `EM`, or radio values from SQL type or labels. For every role column that actually exists in the target schema, initialize newly inserted form/metadata rows to `1` by default, while preserving existing permissions and never inventing role columns.
+Safe fix pattern: for newly inserted dynamic `SYS_TbColumn` rows, generate `类型`/`控件` per the single authority in `client-source-contract.md` section 9 (physical `date`/`datetime`/`datetime2` → `D`, others → `S`; ordinary fields → `控件='E'`, `*_PJLX` → `'S'`). Do not derive `N`, `C`, `EM`, or radio values from SQL type or labels. For every role column that actually exists in the target schema, initialize newly inserted form/metadata rows to `1` by default, while preserving existing permissions and never inventing role columns.
 
-Verification: read `sys.columns` to enumerate role columns; assert date metadata rows have `类型='D'`, other rows have `类型='S'`, ordinary controls are `E`, and `*_PJLX` controls are `S`; all actual role columns are `1`, and standard `PO>1` detail behavior is verified from Grid metadata (`帮助`/`管道字符`/`只读`/`列宽`) rather than from `控件` or inferred type.
+Verification: read `sys.columns` to enumerate role columns; assert date metadata rows have `类型='D'`, other rows have `类型='S'`, ordinary controls are `E`, and `*_PJLX` controls are `S` (values per `client-source-contract.md` section 9); all actual role columns are `1`, and standard `PO>1` detail behavior is verified from Grid metadata (`帮助`/`管道字符`/`只读`/`列宽`) rather than from `控件` or inferred type. For `BTYPE=1/UForm1`, `控件` is not read by `LoadGridSet` at all — the live gates there are `顺序`, `列宽`, `类型`, `显示` and the role column (section 9.6.5).
 
 ### New Header/Detail Bills Require the Standard Button Set
 
@@ -726,3 +726,13 @@ AND (<ConfirmedEndDateColumn> IS NULL
 安全修复模式：指定唯一权威文件承载取值表（当前是 `client-source-contract.md` 第 9 节），其余文件改为声明「取值以该节为准」并只保留门禁与流程，不复述取值表。每个引用文件在标题下方放一条权威声明，明确分歧时的处理方向。新增或修改取值规则时只改权威文件，再检查引用处是否需要更新措辞。流程性内容（验收顺序、阻断条件、交付物）留在原文件，不要一并搬走。
 
 验证：对每个取值关键词统计各文件出现次数，确认完整取值表只在权威文件中出现一次，其余为指向该节的引用；运行 skill 自测与 `quick_validate.py`；确认没有规则在搬迁中丢失（对比搬迁前后的关键词计数，丢失项必须在权威文件中能找到对应条目）。
+
+## BTYPE=1 网格表单不读 `控件`，漏填列宽只会静默截断
+
+症状：`BTYPE=1/UForm1` 基础资料的网格列名显示不全，但没有任何报错；或者为了让某个字段表现成复选框/多行而改了 `SYS_TbColumn.控件`，界面毫无变化。
+
+可能原因：`UForm1` 是**网格表单**，不走 `CreateDlgItemWithArrayDateTime` 的表头控件工厂。它的 `CSGSoftApp::LoadGridSet` 只按 `顺序` 当列下标，然后读 `列宽` 设列宽（`0` 回退 `100`）、`类型` 设列格式、`管道字符` 设下拉、`只读`/`帮助`/`合并`/`对齐`/`显示` 和角色列；**`控件` 在该路径下根本不被读取**。因此漏填 `列宽` 不会报错，只会用 `100` 把字段名截断；改 `控件` 也不会产生任何界面效果。`类型` 在这里是列格式而非控件码：`NF/NZ/ND/NJ/NB/N/N1..N6` 走 `SetColFormat`，`D` 走 `SetColDataType(8)` + `yyyy-mm-dd`，`C` 是复选框列。
+
+安全修复模式：`BTYPE=1` 的运行门禁按 `顺序`、`列宽`、`类型`、`显示`、角色列检查，不要用“`控件` 必须为 E”当作运行结论——那只是生成契约的取值约定。可见字段必须显式给出满足标签最小宽度的 `列宽`，不能依赖回退值。需要复选框或数字格式时改 `类型`，不要改 `控件`。
+
+验证：确认该表单确实走 `UForm1` 而非 `CBill`；对 `显示=1` 的行断言 `列宽` 为正整数且不小于标签最小宽度；按 `LoadGridSet` 的读取形状回放网格设置；`BTYPE=1` 的 `顺序` 断言为 `0..n-1`。

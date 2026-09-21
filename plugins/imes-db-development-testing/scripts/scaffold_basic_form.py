@@ -363,7 +363,8 @@ IF (SELECT COUNT(*) FROM {meta_table} WHERE {meta_name}={qn(c['visible_name'])})
  IF EXISTS (SELECT 1 FROM {meta_table} WHERE {meta_name}={qn(c['visible_name'])} GROUP BY {qmeta('PO')} HAVING MIN(TRY_CONVERT(int,{qmeta('顺序')}))<>0 OR MAX(TRY_CONVERT(int,{qmeta('顺序')}))<>COUNT(*)-1 OR COUNT(DISTINCT TRY_CONVERT(int,{qmeta('顺序')}))<>COUNT(*) OR SUM(CASE WHEN TRY_CONVERT(int,{qmeta('顺序')}) IS NULL THEN 1 ELSE 0 END)>0) THROW 53110,N'BTYPE=1 每个表名与 PO 的顺序必须从 0 连续编号。',1;
 IF EXISTS (SELECT 1 FROM {meta_table} WHERE {meta_name}={qn(c['visible_name'])} AND {meta_field} NOT IN ({names})) THROW 53104,N'存在多余元数据字段。',1;
 IF EXISTS (SELECT 1 FROM {meta_table} WHERE {meta_name}={qn(c['visible_name'])} AND {meta_marker} IS NOT NULL AND LTRIM(RTRIM({meta_marker}))<>N'') THROW 53105,N'标识非空，可能触发 FF_BS。',1;
-IF EXISTS (SELECT 1 FROM {meta_table} WHERE {meta_name}={qn(c['visible_name'])} AND COALESCE({meta_control},N'')<>N'E') THROW 53106,N'新生成元数据控件必须全部为 E。',1;
+IF EXISTS (SELECT 1 FROM {meta_table} WHERE {meta_name}={qn(c['visible_name'])} AND COALESCE({meta_control},N'')<>N'E') THROW 53106,N'新生成元数据控件必须全部为 E（生成契约值；UForm1 的 LoadGridSet 不读该列）。',1;
+IF EXISTS (SELECT 1 FROM {meta_table} WHERE {meta_name}={qn(c['visible_name'])} AND TRY_CONVERT(int,{qmeta('显示')})=1 AND (TRY_CONVERT(int,{qmeta('列宽')}) IS NULL OR TRY_CONVERT(int,{qmeta('列宽')})<=0)) THROW 53112,N'可见字段列宽必须显式给出正整数：LoadGridSet 对 0 回退到 100，字段名会被截断。',1;
 IF EXISTS (
     SELECT 1
     FROM {meta_table} m
