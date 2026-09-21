@@ -132,6 +132,30 @@ Pass criteria:
 - executes transactional header/detail CRUD and audit/cancel-audit, proves `AutoOpen` resolves through `IOBDZD`, and confirms zero test residue;
 - rejects both a header-only template and a `BTYPE=2` directory layout as incompatible with the requested header/detail behavior.
 
+## Existing BTYPE=2 Runtime Contract
+
+Prompt shape: an existing category-tree/basic-data form opens with blank field names or missing tabs even though its `IOJCBDZD` route and `v_tbcolumn` rows are non-empty.
+
+Pass criteria:
+
+- reads the active `UForm2` source before broad metadata comparison and records the exact tree/detail hard fields;
+- checks `<MASTER>_PBH/<MASTER>_BH/<MASTER>_MC` and `<DETAIL>_ID/<DETAIL>_BH/<DETAIL>_LBBH` with `sys.columns`/`COL_LENGTH`;
+- treats `*_CODE/*_NAME`, labels, help, and route aliases as non-substitutes for source-level hard fields;
+- executes the tree-root and selected-node detail SQL separately, then validates `LBNAME` and `MC` metadata as separate closures;
+- stops at the first runtime-contract failure and does not continue to workspace/layout/CRUD or propose guessed compatibility columns.
+
+## New Table Runtime Naming Collision
+
+Prompt shape: a new table or form is requested while its planned names conflict with a client source contract, but the table name itself is currently absent.
+
+Pass criteria:
+
+- performs a column-level naming preflight against source, route, same-module schema, constraints, metadata, and generated SQL before `CREATE TABLE`;
+- fails closed when a runtime hard field is missing, substituted by `*_CODE/*_NAME`, or contradicted by the route, even if no table object currently exists;
+- does not create the table or add guessed metadata to make the conflict appear resolved;
+- reports the conflict and required repair scope, including physical columns, metadata, indexes/constraints, migration, and rollback;
+- verifies exact tree/detail SQL and metadata closure after an explicitly reviewed compatible design.
+
 ## Dynamic Header Control Initialization
 
 Prompt shape: a newly registered `IOBDZD` header/detail bill shows a generic control-initialization error when opened.
@@ -483,3 +507,37 @@ Pass criteria:
 - 关键字段使用显式中文映射契约，全量字段至少验证非空、非物理名回退、维护/查询字段闭合，表头/表体同义字段使用稳定显式别名；
 - 验证通过 `v_tbcolumn` 回放维护字段、查询标题 SQL、派生表分页/计数 SQL 和关联 JOIN；数据库验证与真实客户端重开分别报告；
 - 将通用规律记录到 `references/patterns.md`，不把客户名、服务器、单号或现场数据写入通用 skill。
+
+## 无数据库错误的客户端报错先读源码契约
+
+Prompt shape: 用户报告某单据“控件初始化时出错!”、打不开、页签空白或标题 SQL 语法错误，但表结构、约束和普通 CRUD 都正常。
+
+Pass criteria:
+
+- 先读 `references/client-source-contract.md`，按源码常量核对，而不是先改表、先加列或先做全库扫描；
+- 用确切拼接形状回放维护页、查询页和翻前单 SQL，并区分 `SELECT  FROM …`（字段集为空）与 `FROM )`（跨表来源为空）两种根因；
+- 报告失败项时给出具体元数据行（`表名/PO/字段名/键值`）和违反的硬规则编号，不把客户端源码范围的缺陷描述成数据库缺列；
+- 只对已证实违反的项生成带旧值断言、影响行数断言和对称回滚的修复，且不改变 `顺序`、`RID`、控件码、别名等运行锚点；
+- 明确区分数据库验证与真实客户端重开验收。
+
+## 三条元数据查找键不可混用
+
+Prompt shape: 用户报告字段帮助打不开、选择窗口一闪即关，或参照列表为空，而 `IOJCBDZD` 里“明明有配置”。
+
+Pass criteria:
+
+- 区分 `GLZD` 关联路由查 `IOJCBDZD_MC`、字段 `帮助` 值查 `IOJCBDZD_BZBH`、单据路由查 `IOBDZD_MC`/`IOBDZD_BH` 三条独立键，不假设它们共用同一个键；
+- 对关闭即消失的窗口核对 `IOJCBDZD_VKEY`/`IOJCBDZD_BYZD`/`IOJCBDZD_TABLE` 是否非空，并识别源码在 `VKEY` 为空时直接 `OnCancel()` 的行为；
+- 不为 `GYSBZ`/`KHBZ`/`WLBZ` 这类源码内置帮助类型补 `IOJCBDZD` 表映射；
+- 验证时分别回放关联显示投影、帮助取数 SQL 和 `切换=1` 的 `BYZD→VKEY` 反查，确认反查唯一命中，避免保存后编号被写成空串。
+
+## 明细页物理表由顺序=1 字段锚定
+
+Prompt shape: 用户报告某个明细页签空白、翻前单报错，或明细保存写到了错误的表。
+
+Pass criteria:
+
+- 证明 `PO=iPos+1` 的页签映射，并用该 `PO` 组的 `顺序=1` 字段名截取 `<明细物理表名>_` 前缀，而不是从 `IOBDZD` 推断明细表；
+- 断言明细 `顺序` 为 `1..n` 连续无重复，并说明它同时是 Grid 列下标（与 `BTYPE=1/UForm1` 的 0 基规则不同）；
+- 回放翻前单形状 `select * from (select … ) t where 单号=… order by cast(分录号 as int)`，确认 `单号`、`分录号` 别名存在且 `分录号` 可转整数；
+- `GetDataField(表单名,' and PO=<n> ',true)` 返回空时报告为该页签的初始化失败根因，不以补业务列收场。

@@ -297,6 +297,26 @@ Safe fix pattern: classify by runtime semantics before DDL. Keep `BTYPE=2` only 
 
 Verification: prove `AutoOpen` resolves the visible name through `IOBDZD` before `IOJCBDZD`; `PO=1` fields map to the header and each `PO>1` first field prefix maps to the intended detail table; every detail page exposes `FID`, `单号`, `分录号` where expected, and a real `关键字段`; run transactional header/detail CRUD plus audit/cancel-audit and confirm rollback leaves no test rows.
 
+## Existing BTYPE=2/UForm2 Must Validate Hard-Coded Tree Columns
+
+症状：分类树表单能查到 `IOJCBDZD` 路由和 `v_tbcolumn` 行，但打开后字段名、页签表面为空，或右侧网格没有数据。
+
+可能原因：`UForm2` 在动态元数据加载前直接拼接树查询和明细筛选，实际读取 `<MASTER>_PBH/<MASTER>_BH/<MASTER>_MC` 以及 `<DETAIL>_ID/<DETAIL>_BH/<DETAIL>_LBBH`。物理表使用 `*_CODE/*_NAME`，或把 `VKEY/BYZD` 当成硬字段别名时，路由看似完整但初始化已经在左树阶段失败。
+
+安全修复模式：先从活动源码记录硬字段和两条真实 SQL，再核对 `sys.columns`、`IOJCBDZD`、`LBNAME`/`MC` 两套元数据。发现命名契约冲突时停止建表或元数据写入；只有在明确审查兼容范围后，才能做成套物理列/索引/元数据/回滚变更，不能用标签、帮助或额外元数据掩盖缺列。
+
+验证：执行树根查询和选中节点明细查询，分别断言字段存在、筛选值来源正确、`GetDataField`/`GetCrossTable` 非空；树字段只能闭合到 `LBNAME`，右侧字段只能闭合到 `MC`。最后再检查工作区和角色，不能把权限结果当成运行时硬字段验证。
+
+## New Table Naming Must Fail Closed Against Client Runtime Contracts
+
+症状：建表脚本执行成功，但同版本客户端仍报列不存在、空页签或空字段；或者新表与已存在的客户端命名契约冲突。
+
+可能原因：DDL 只检查了“表名不存在”，没有把源码硬编码列名、路由、元数据和生成 SQL 纳入对象冲突判断；于是 `*_CODE/*_NAME` 被错误地当成 `<MASTER>_BH/<MASTER>_MC` 等价物，或在冲突状态下直接创建了物理表。
+
+安全修复模式：把运行时硬字段清单作为建表前 preflight 的必需输入，逐列比对源码、同模块现有表、路由和约束。任何缺列、同义替代、表名/字段名冲突或 SQL 不可执行都返回 `review-blocked`，不生成或执行 `forward.sql`；修复必须同时说明兼容列、数据迁移、元数据和回滚范围。
+
+验证：在 DDL 前输出冲突清单和停止原因；在允许的测试环境中再验证 exact `sys.columns`、树根 SQL、选中节点 SQL、两套元数据闭合和工作区权限。没有这些结果，不能以“表已创建”或“元数据有记录”宣布完成。
+
 ## MES-To-ERP Synchronization
 
 Common invariants to confirm across customers:
@@ -676,3 +696,13 @@ AND (<ConfirmedEndDateColumn> IS NULL
 安全修复模式：先在确认的数据库中按模块前缀和旧后缀从 `sys.columns` 生成完整 old-to-new map，并保存类型、长度、可空性、数据量、外键列绑定和所有元数据命中数。命名规则必须由同模块现有列证明，不能因为显示标签或单个示例臆造。前向脚本在数据库/实例门禁和干净事务内逐列 `sp_rename`，然后按旧值分别更新 `SYS_TbColumn.字段名`、`SYS_TbColumn.GLZD`、`IOJCBDZD` 的 `Vkey/BYZD` 及已确认的路由字符串；每一类都做精确影响行数断言。同步更新当前建表/注册/查询/布局/验证/回滚脚本和 ER 定义；迁移前证据及反向映射可以保留旧名，但必须明确是历史或 rollback 内容。
 
 验证：逐项证明物理新列数等于映射数、旧列为零、类型/长度/可空性未变；外键列关系数量和目标键未变；维护页与查询页 `SYS_TbColumn` 的字段闭合、`GLZD`/帮助路由无旧名且可执行；`sys.sql_modules`、当前工程脚本和 ER XML 中无未审阅旧名；运行时形状的帮助、JOIN、标题 SQL 和派生表包装可解析。回滚只在新名仍完整、旧名不存在且元数据仍是前向结果时反向执行，不能用删除业务数据替代列名回滚。
+
+## 源码硬编码契约导致的“无异常报错”
+
+症状：数据库对象、约束、CRUD 全部正常，但客户端弹“控件初始化时出错!”、“转译失败/数据读取失败”、单据打不开、明细页签空白，或生成的 SQL 报语法错误；错误信息里没有可用的表名或列名。
+
+可能原因：这些错误几乎都不是数据库缺陷，而是编译进 EXE 的常量没有被满足——空的 `显示名/字段名`、`标识` 被填成 `'0'`、`GLZD` 行的 `LMark/RMark` 为 `NULL`、`PO=1` 某行 `控件/类型/RID/显示/必填/只读` 为 `NULL`、`单号`/`分录号` 别名缺失、`分录号` 不能 `cast as int`、可见名在 `IOJCBDZD/IOBDZD/SYS_TbColumn/SYSWSPACE/sysmenu` 之间不一致、`GLZD` 与 `帮助` 两条路由的键（`IOJCBDZD_MC` 与 `IOJCBDZD_BZBH`）被混用、库排序规则为大小写敏感。源码读不到的键只返回空串，空串被直接拼进 SQL，所以没有异常、没有堆栈。
+
+安全修复模式：不要先改数据库，也不要靠“加一列”让对方不报错。先读 `references/client-source-contract.md`，用确切拼接形状回放维护页、查询页和翻前单三种 SQL，定位是字段集为空（`SELECT  FROM …`）还是跨表来源为空（`FROM )`）；再按硬规则逐条核对键、别名、控件码、后缀锚点、`顺序` 基址和可见名一致性。修复只针对已证实违反的那一项，保留旧值断言、影响行数断言和对称回滚；`码表编号` 之类属于客户端源码范围的缺失映射，报告为客户端问题，不得用新业务列掩盖。
+
+验证：按 `client-source-contract.md` 第 7 节清单逐项取证；回放 `SELECT <GetDataField> FROM <GetCrossTable> WHERE 1=2` 与三种包装形状并确认可解析；确认 `v_tbcolumn` 无空 `显示名/字段名`、`标识` 全为 `NULL`、`GLZD` 行别名闭合；最后要求真实客户端重开单据、页签和帮助窗口验收，数据库验证通过不等于界面可用。

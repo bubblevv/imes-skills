@@ -15,7 +15,7 @@ Classify the intended client route before DDL:
 - `BTYPE=2/UForm2` is a category tree or directory on the left and one filtered detail dataset on the right. Its `LBTABLE/LBNAME` and `TABLE/MC` are separate metadata sets; it is not one document save unit.
 - `IOBDZD` is the true business-bill contract: one visible bill name, one document number, `SYS_TbColumn.PO=1` header and `PO=2/3/...` line tabs, plus lifecycle scripts when required.
 
-Choose by runtime behavior, not merely by physical table count. A form requiring a header with multiple lines, unified save/delete, audit/cancel-audit, references, or upstream/downstream documents must use `IOBDZD`. Stop and correct the model when ER evidence says header/detail but the proposed design contains only an isolated header or a `BTYPE=2` directory layout.
+Choose by runtime behavior, not merely by physical table count. A form requiring a header with multiple lines, unified save/delete, audit/cancel-audit, references, or upstream/downstream documents must use `IOBDZD`. Stop and correct the model when ER evidence says header/detail but the proposed design contains only an isolated header or a `BTYPE=2` directory layout. For `BTYPE=2`, treat the physical master/detail names as a client API: read the active `UForm2` tree and detail SQL, record the exact hard-field map, and reject `*_CODE`/`*_NAME` as substitutes for the required runtime suffixes unless the source itself proves an alias layer.
 
 ## Design Review
 
@@ -39,6 +39,7 @@ Follow the repository's existing migration naming and storage convention. When n
 The forward script should:
 
 - fail closed when incompatible objects or columns already exist;
+- fail closed on runtime-contract conflicts even when the table itself does not exist; for `BTYPE=2`, preflight the planned hard fields against the active source, route, `LBNAME`/`MC` metadata, same-module columns/constraints, and generated tree/detail SQL before emitting DDL;
 - use `SET XACT_ABORT ON` and an explicit transaction when every included DDL/DML operation is transaction-safe;
 - schema-qualify objects and safely quote identifiers;
 - create tables before dependent constraints, indexes, views, or procedures;
@@ -47,7 +48,7 @@ The forward script should:
 
 The rollback script should reverse only objects introduced by the change, guard against data loss, and state when rollback requires a backup or is intentionally unavailable. Never write a rollback that silently drops populated business data.
 
-The verification script must be read-only and check exact definitions, column metadata, constraints, indexes, dependencies, and representative query shapes. Include expected assertions rather than relying only on visual inspection.
+The verification script must be read-only and check exact definitions, column metadata, constraints, indexes, dependencies, and representative query shapes. Include expected assertions rather than relying only on visual inspection. For `BTYPE=2`, verification must execute the tree-root query and selected-node detail query with the source-confirmed hard columns, prove separate `LBNAME`/`MC` metadata closure, and assert that no unreviewed alternate naming is accepted as a compatibility field.
 
 ## Test Matrix
 

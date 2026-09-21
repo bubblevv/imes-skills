@@ -11,8 +11,32 @@ description: Develop, test, or diagnose IMES SQL Server databases across custome
 - For a new or changed business table, schema migration, index, constraint, view, function, trigger, or supporting procedure, read `references/schema-development.md` before designing or editing SQL.
 - For a new metadata-backed iMES form, read `references/document-form-contract.md` as well. It distinguishes `IOJCBDZD_BTYPE=1` single-table lookups, `BTYPE=2` category-tree/detail-dataset maintenance, and true `IOBDZD` header/detail bills. It defines the database-only contract across the business tables, `IOBDZD`, `IOJCBDZD`, `SYS_TbColumn`/`v_tbcolumn`, `IOYYGX`, `IOPOPDLG`, `BDJB`, `SYSWSPACE`, and required `sysmenu` metadata for the standard dynamic-bill buttons.
 - For an existing dynamic-bill reference/filter-only request, read `references/reference-fast-path.md` first. Use its narrow `IOYYGX`/source-date/preview/update/verification path; do not repeat the full dynamic-bill creation contract unless the route, metadata, lifecycle, or save behavior also changes.
+- For an existing `IOJCBDZD_BTYPE=2/UForm2` form incident, read the mandatory BTYPE=2 first-pass below and `references/document-form-contract.md` before broad metadata comparison or DDL. The left tree has source-level hard-coded column names; a non-empty route and non-empty `v_tbcolumn` rows do not prove that the physical master table is runnable.
 - For a live database investigation or existing business-logic change, follow the evidence-first debugging workflow below.
+- Before designing or repairing any table, form, layout, or metadata row, read `references/client-source-contract.md`. It records the compiled-in table names, column names, aliases, control codes, suffix anchors and SQL shapes of the legacy client. The hard-rule list in `## 客户端源码硬规则` below is a subset and is not optional.
 - A database table is not an iMES client form. This skill may define the database contract needed by a form. Database-resident `SYSWSPACE` rows and role-column grants may be included when the user explicitly scopes database metadata; MFC dialogs/resources, client menu or command mappings, and C++ form classes still require the client project's workflow and are never implied by the database change.
+
+## 客户端源码硬规则（不可协商）
+
+这个老客户端把大量契约编译进了 EXE。数据库可以完全合法、约束齐全、CRUD 全通过，客户端仍然报错、空白或打不开，而且错误信息往往没有堆栈。因此下面每条都是**门禁**：缺少由当前版本源码、同库工作单据或目标库只读证据支持的结论时，**停止并报告**，不得猜测、不得用“先部署再试”代替验证。完整证据、确切 SQL 形状、控件分派表和症状对照见 `references/client-source-contract.md`。
+
+1. **键不能混用。** `GLZD` 关联路由查 `IOJCBDZD.IOJCBDZD_MC`；字段 `帮助` 值查 `IOJCBDZD.IOJCBDZD_BZBH`；单据路由查 `IOBDZD.IOBDZD_MC`（审批路径查 `IOBDZD_BH`）。三条路由各自独立，键写错不报错、只返回空串。
+2. **`显示名` 和 `字段名` 不得为空。** `GetDataField` 命中空值时会弹窗并返回空字段串，最终生成 `SELECT  FROM …`。`标识` 必须保持 `NULL`，非空（含字符串 `'0'`）会输出 `sum(case FF_BS …)`，要求业务表存在物理列 `FF_BS`。
+3. **`GLZD` 非空行的 `字段名`、`IOJCBDZD_Table`、`IOJCBDZD_VKEY`、`LMark`、`RMark` 必须全部有值并生成可执行 JOIN。** 空别名写 `''`，不写 `NULL`。
+4. **可见名五处一致且唯一：** `IOJCBDZD_MC`、`IOBDZD_MC`、`SYS_TbColumn.表名`、`SYSWSPACE_MC`、`sysmenu_bdmc`。
+5. **`PO=1` 每行的 `控件`、`类型`、`RID`、`显示`、`必填`、`只读`、坐标必须非空。** 这些列被直接转字符串、`bool`、`(int)(double)`；`NULL` 会抛异常并被吞掉，只显示“控件初始化时出错!”，单据打不开。
+6. **控件码只能来自当前版本源码 + 同库工作单据，不能按物理列类型推断。** 表头 `控件='S'` 是静态文本、`'C'` 是复选框；`类型='D'` 是**只读日期格式框（右键日历）**、`'DT'` 才是日期时间选择器、`'EM'` 才是多行框。
+7. **表头锚点后缀 `_ID/_SJDH/_YWRQ/_PJLX/_SHBZ/_ZDR/_SHR/_ZY` 各恰好一条，且不得有其它字段名子串冲突**（源码用 `Find` 子串匹配，靠后的同后缀行会覆盖前者）。
+8. **明细组 `顺序=1` 那条字段的 `字段名` 前缀就是明细物理表名。** 明细 `顺序` 同时是 Grid 列下标，必须是 `1..n` 连续无重复。
+9. **明细字段集必须投影出 `单号` 和 `分录号`，且 `分录号` 能 `cast(... as int)`。** 翻前单 SQL 写死这两个别名和排序。
+10. **动态单据必须有独立的 `<表单名>查询` 字段集**（`GetDataField(<表单名>查询)` 配 `GetCrossTable(<表单名>)`），并含可见必填的 `单号`、`日期` 锚点。
+11. **`CBill` 固定字段卡在物理列和元数据里都必须齐全**，其中 `<表头>_PJLX` 是硬运行字段：所有表头读写都带 `and <表头>_PJLX='<IOBDZD_BH>'`。
+12. **`IOBDZD_BH` 必须能唯一反查 `IOBDZD_HTABLE`/`IOBDZD_MC`；`IOBDZD_FORMAT`、`IOBDZD_MARK`、`HTABLE`/`FTable`/`Vkey` 必须齐全。** 单号由 `PRD_GETDANHAO` 按可见表单名生成，过程缺失或 `FORMAT` 为空只会得到空单号，不报错。
+13. **`BDJB_PJLX` 用可见表单名，不是 `IOBDZD_BH`。** 审核状态 `<表头>_SHBZ` 的取值含义必须来自同版本字典，源码多处直接比较 `="1"`。
+14. **`BTYPE=1/UForm1` 的 `顺序` 是真实 0 基列下标**（`0..n-1`）；`BTYPE=1` 搜索按钮写死 `charindex(…,码表编号)`，字段集必须能投影出别名 `码表编号`，否则搜索恒定报“列名 '码表编号' 无效”——这是客户端范围问题，**不得**用新增物理列掩盖。
+15. **目标库排序规则必须是大小写不敏感。** 同一源码里 `v_tbcolumn`、`V_TbColumn`、`V_TBCOLUMN` 并存。
+16. **空来源必须回放验证。** 部署前执行 `SELECT <GetDataField> FROM <GetCrossTable> WHERE 1=2`，以及维护页、查询页、翻前单三种包装形状；`SELECT  FROM …` 与 `FROM )` 分别指向字段集为空和跨表来源为空，两者根因不同。
+17. **`BTYPE=1`、`BTYPE=2`、`IOBDZD` 三套规则不能互换**（`顺序` 基址、查询字段集、审核布局、按钮集各不相同）。
 
 ## GLZD/LMark/RMark 关联显示契约
 
@@ -50,6 +74,18 @@ When an existing `BTYPE=1/UForm1` single-table form reports an open failure, bla
 5. Read only this form's `SYSWSPACE` parent, leaf, and configured operation rows. Verify the leaf and each operation have explicit role visibility. Missing `IOBDZD`, `BDJB`, `<form>查询`, or dynamic-bill `sysmenu` rows is not a single-table defect unless a proven consumer requires them.
 
 Only after all five items pass, inspect client source, optional help/relation behavior, or a same-version reference form. If the source-proven search path is the only failed check and has no database configuration counterpart, report it as client scope instead of inventing a business column.
+
+## Existing `BTYPE=2/UForm2` Incident: Mandatory First Pass
+
+When an existing category-tree form opens with blank field names, missing tabs/surface, an empty right grid, or a generic open error, complete this read-only checklist before comparing broad metadata, proposing compatibility columns, or changing the route. A non-empty `IOJCBDZD` row and non-empty `v_tbcolumn` rows are not sufficient: `UForm2` directly constructs tree SQL and reads fixed physical column names.
+
+1. Verify target identity, then read the unique `IOJCBDZD` route by visible name. Confirm `BTYPE=2`, right-side `TABLE/MC`, tree `LBTABLE/LBNAME`, and the detail filter contract.
+2. Read the active `UForm2` source path and record the exact master/detail hard-field contract. In this client family the tree master must expose `<MASTER>_BH`, `<MASTER>_MC`, and `<MASTER>_PBH`; the right-side table must expose `<DETAIL>_ID`, `<DETAIL>_BH`, and `<DETAIL>_LBBH`. Confirm each with `sys.columns`/`COL_LENGTH`, not with labels or route aliases.
+3. Treat `IOJCBDZD_VKEY/BYZD` as lookup and projection metadata, not as permission to rename the tree columns used by hard-coded `UForm2` code. If the route says one naming convention but the table exposes another, stop and report a runtime naming-contract failure; do not mask it by adding unrelated metadata rows.
+4. Replay both client-shaped SQL paths: the tree query `SELECT * FROM <LBTABLE> WHERE ISNULL(<LBTABLE>_PBH,'')=<parent>` and the selected-detail query filtered by `<DETAIL>_LBBH=<MASTER>_BH`. Fail on invalid columns, empty `GetDataField`, empty `GetCrossTable`, or an invalid filter source.
+5. Read the two metadata sets separately: `LBNAME` fields for the tree and `MC` fields for the right dataset. Verify tree/detail fields resolve to their own physical tables, `顺序` follows the active `UForm2` path, and workspace/role rows are not used to hide a physical contract failure.
+
+If any item fails, the result is `review-blocked` until the first failed runtime predicate is repaired or explicitly accepted as client-scope work. Do not continue to layout, help, workspace, or CRUD analysis as though the form were structurally valid.
 
 ## Existing Dynamic-Bill (`IOBDZD`) Incident: Mandatory First Pass
 
@@ -123,6 +159,8 @@ When the active repository provides `docs/imes/README.md` and `docs/imes/开发�
 
 Read `references/reference-fast-path.md` first for an existing dynamic-bill reference/filter-only request; it is the default route for `IOYYGX_GLTJ` changes that do not alter the bill contract.
 
+Read `references/client-source-contract.md` before any work that creates, repairs, or verifies a business table, form route, `SYS_TbColumn` field set, header control, detail grid, or query dataset. It is the source-code evidence layer behind the hard rules above: the exact SQL the client builds, the three independent lookup keys, the header control dispatch table, the suffix anchors, the detail-page and 翻前单 shapes, and a symptom→root-cause table for errors that surface without any database error. Read it together with the route-specific reference, not instead of it.
+
 Read `references/patterns.md` when the issue involves `GLZD/LMark/RMark` 关联显示、字段帮助/传参、BDJB, PDA save/get procedures, 报工、领料、批号、同步、自定义报表、报表设计器包装、transaction handling, or result-set errors. Object and table names in that reference are examples from common IMES deployments; confirm them against the target schema.
 
 Read `references/bdjb-audit-fast-path.md` when the request mentions BDJB, 审核、撤审、报工、回填、完成标志、状态未更新, or provides a `BDJB_PJLX`/BDJB query. Follow its mandatory first round before broader discovery.
@@ -163,6 +201,8 @@ Read `references/workflow.md`, `references/schema-development.md`, and (for meta
 
 Before writing metadata, inspect `sys.columns` for every metadata object named by the contract. Treat `SYS_TbColumn` as the base table's actual columns and `v_tbcolumn` as a derived runtime projection: fields with names such as `IOJCBDZD_TABLE`, `IOJCBDZD_VKEY`, `IOJCBDZD_BYZD`, or `IOJCBDZD_FILTER` belong to `IOJCBDZD` (or the confirmed view), not automatically to `SYS_TbColumn`. Never design an `INSERT` or `UPDATE` from a view-only column or from a remembered schema; fail closed when the inspected base columns do not match the proposed statement.
 
+For a new `BTYPE=2/UForm2` object, DDL has an additional runtime preflight: the proposed tree master must expose `<MASTER>_BH`, `<MASTER>_MC`, and `<MASTER>_PBH`; the right-side detail table must expose `<DETAIL>_ID`, `<DETAIL>_BH`, and `<DETAIL>_LBBH`. `*_CODE`/`*_NAME`, route aliases, labels, and help metadata are not compatible substitutes for these source-level names. A mismatch among the source contract, route, physical columns, metadata, or generated SQL is a naming-contract conflict and must stop `forward.sql` before any table or metadata is created.
+
 ### Gate 2: write the form contract
 
 For each business object record the visible name, stable code, route (`BTYPE` or `IOBDZD`), physical tables, primary/business keys, header-detail foreign key, `PO`/tab mapping, lookup display/key mapping, lifecycle operations, relation consumers, workspace parent/leaf, role columns, and required query fields. Mark each dependency as `required`, `optional (only with a proven consumer)`, or `out of database scope`. An unresolved key, enum, control code, relation placeholder, or lifecycle meaning stops metadata writes.
@@ -170,6 +210,8 @@ For each business object record the visible name, stable code, route (`BTYPE` or
 ### Gate 3: build physical schema
 
 Using the nearest confirmed local convention, produce `forward.sql`, `rollback.sql`, `verification.sql`, and (for writable test databases) `crud-test.sql`. Create tables, real columns, primary/foreign keys, unique constraints, defaults, nullability, precision, and indexes first. For a bill, include the runtime hard fields confirmed from source (normally header ID/document number/type/date/creator/auditor/summary/audit flag and detail ID/document number/line number); do not register virtual fields that do not exist physically. Guard every script with the target identity and expected preconditions.
+
+Before `CREATE TABLE` for `BTYPE=2`, run a column-level conflict preflight against the source-confirmed hard-field map. Assert that the planned master/detail columns use the exact runtime names, that existing objects do not expose an incompatible same-purpose naming set, and that the route's `LBTABLE/LBNAME`, `TABLE/MC`, `VKEY/BYZD`, metadata fields, keys, and generated tree/detail SQL all agree. If the only proposed fix is to add `*_BH`/`*_MC`/`*_PBH` or `*_ID`/`*_LBBH` after an incompatible table was already created, classify it as a compatibility change requiring explicit review; never silently create the conflicting table or add guessed aliases.
 
 ### 3.1 `CBill` fixed-field gate
 
@@ -197,7 +239,7 @@ The `IOBDZD_FORMAT` column is the bill-number format consumed by `PRD_GETDANHAO`
 `IOBDZD_BH` and `IOBDZD_MARK` are allocated by reconnaissance, never invented form by form. Before choosing either value, run a read-only inventory of the target's existing `IOBDZD` rows, group them by business class, and derive both values from that inventory.
 
 - `IOBDZD_BH` is the stable class code. Forms of the same business class stay grouped together and are assigned downward as class prefix plus serial number, taking the smallest unused serial in that class. Preserve a confirmed existing class prefix; do not invent a new prefix for a form that belongs to an established class, renumber unrelated routes, or allocate an isolated code from the new form alone. Because the prefix-plus-serial form has no fixed width, size dependent columns from the current longest route value rather than assuming a six-character code.
-- `IOBDZD_MARK` is the document-number prefix and must be exactly two ASCII English letters, globally unique across the entire `IOBDZD` table. Reject `NULL`, empty or whitespace-only values, digits, Chinese characters, three or more letters, mixed non-ASCII, and any duplicate of an existing mark. A scaffold or generator must fail closed when the mark is missing or malformed instead of substituting a default such as `1`.
+- `IOBDZD_MARK` is the document-number prefix and must be exactly two ASCII English letters, globally unique across the entire `IOBDZD` table. Reject `NULL`, empty or whitespace-only values, digits, Chinese characters, three or more letters, mixed non-ASCII, and any duplicate of an existing mark. Choose the two letters as the pinyin-initial mnemonic of the form's distinguishing name whenever one exists (`点检模板` -> `MB`, `维修工单` -> `WX`, `资产入库单` -> `RK`); when no readable mnemonic is available, any unused two-letter combination is acceptable. Uniqueness is the hard constraint and mnemonic quality is only a preference, so never reuse a taken mark to keep a nicer abbreviation. A scaffold or generator must fail closed when the mark is missing or malformed instead of substituting a default such as `1`.
 
 Both values are fixed route identity. A repair must not change an existing confirmed `BH` or `MARK` to accommodate a new form, and the preflight must assert the chosen `MARK` is two ASCII letters and unused, and that the chosen `BH` does not collide with an existing route.
 
@@ -278,6 +320,7 @@ Run parse-only checks, then read-only contract checks in every environment and t
 - non-empty query metadata, unique aliases, separately non-empty `GetDataField` and `GetCrossTable` results, executable title SQL, and paging/count wrapper; fail on either `SELECT  FROM ...` or `FROM )`;
 - for `BTYPE=1`, visible-name-to-table routing, physical-column mapping, and no invented dynamic-bill query/`IOBDZD`/`BDJB` contract;
 - for `BTYPE=1`, reproduce the `UForm1` zero-based field/grid access and assert every `(表名,PO)` order is exactly `0..COUNT(*)-1`; an extra `IOJCBDZD_BYZD` projection column may hide an off-by-one error but does not change this contract;
+- for `BTYPE=2`, assert one unique route, source-confirmed master/detail hard columns, and executable tree-root and selected-node detail SQL using those exact columns; `LBNAME` metadata must close to the tree and `MC` metadata must close to the right dataset, with no `*_CODE`/`*_NAME` substitution accepted;
 - for `UForm1` metadata, reproduce `GetDataField(..., true)`/`GetCrossTable` field generation and assert that ordinary fields have empty `SYS_TbColumn.标识`; a non-empty marker (including the string `0` in an `nvarchar` column) is a runtime switch that emits `sum(case FF_BS ...)`, not a generic false value;
 - test the initial-load path and the search-button path separately: a successful `Refresh()` does not prove that a fixed search predicate such as `码表编号` exists on the target table; an absent search column is a client-source defect and must not be masked by adding an invented business column;
 - each enabled `IOYYGX`/`IOPOPDLG` relation and `SYLJ/XYLJ` result shape;
