@@ -274,7 +274,8 @@ order by SYSWSPACE_MC
 15. `sysmenu` 七个标准按钮行齐全。
 16. `SYSWSPACE`：`BH` 长度在 `{4,6,8,10}`、父节点存在且为其前缀、`MX=1`、`BTN=0`、`LOC` 与同类一致；每个角色列真实存在并在**非 ADMIN 角色**下验证过可见性与 `AutoOpen` 放行。
 17. 需要打印时 `report` 有 `report_pjlx = 表单名` 行；需要期间过滤时 `SYSMONTH`/`LSZTXX` 有当前期间行。
-18. 空来源回放：`SELECT <GetDataField> FROM <GetCrossTable> WHERE 1=2` 与维护页、查询页、翻前单三种包装形状都能解析并返回 0 行。
+18. `BTYPE=1` 表单的身份列（`顺序=0`）`显示名/标签名` 必须是 `FID`，否则保存静默失败。
+19. 空来源回放：`SELECT <GetDataField> FROM <GetCrossTable> WHERE 1=2` 与维护页、查询页、翻前单三种包装形状都能解析并返回 0 行。
 19. 完成部署后必须再执行用户级 skill 的 `scripts/audit_live_dynamic_bills.sql`，以目标库现存 `IOBDZD` 自动发现动态设备单据；静态生成器和单张单据验证不能替代全量 live scan。
 
 ---
@@ -309,6 +310,7 @@ order by SYSWSPACE_MC
 | 报表按显示名找不到列 | 同一字段集在 `GetGroupField` 下少列 | 对照 `GetDataField` 与 `GetGroupField` 两次投影 |
 | `BTYPE=1` 网格列名被截断，但不报错 | `LoadGridSet` 对 `列宽=0` 回退到 `100` | 该 `表名` 下 `显示=1` 且 `列宽` 为 `0`/`NULL` 的行 |
 | `BTYPE=1` 改了 `控件` 却没有任何效果 | `UForm1` 是网格表单，`LoadGridSet` 不读 `控件` | 确认该表单走的是 `UForm1` 而非 `CBill`；`控件` 在 `BTYPE=1` 下不是运行开关 |
+| **`BTYPE=1` 新增后保存不上**（无报错、无提示、界面无变化） | 身份列 `显示名` 不是 `FID`；`OnTysave` 的 `GetColPos("FID")` 返回 -1 后静默 `return` | 该 `表名` 下 `顺序=0` 那一行的 `显示名/标签名` 是否为 `FID` |
 | `BTYPE=1` 数字列显示成文本 / 日期列排序错 | `类型` 在网格里是列格式（`NZ`/`ND`/`D` 等），不是控件码 | 对照 `LoadGridSet` 的 `SetColFormat`/`SetColDataType` 分支 |
 | 会计期间/报表日期范围为空 | `SYSMONTH` 无 `SYSMONTH_QJ = 当前期间` 行，或 `LSZTXX_DQQJ` 不匹配 | `SYSMONTH` 与 `LSZTXX` 联接结果 |
 | 高级筛选方案打不开或为空 | `SYSFILTERSET` 无该 `TBNAME`/`NO` 行 | 按 `SYSFILTERSET_TBNAME` 查 |
@@ -392,6 +394,13 @@ order by SYSWSPACE_MC
 - **【硬规则 9.6.5】** `BTYPE=1/UForm1` 是**网格表单**，没有 `PO=1` 表头控件创建过程：`CSGSoftApp::LoadGridSet` 直接按 `顺序` 当列下标，读 `列宽` 设列宽、读 `类型` 设列格式、读 `管道字符` 设下拉、读 `只读`、`帮助`、`合并`、`对齐`、`显示` 和角色列。**`控件` 在 `BTYPE=1` 下不被 `LoadGridSet` 读取**，它只是保留字段；不要用“控件必须为 E”当作 `BTYPE=1` 的运行门禁，真正的运行门禁是 `顺序`、`列宽`、`类型`、`显示` 和角色列。
 - **【硬规则 9.6.6】** `LoadGridSet` 对 `列宽=0` 回退到 `100`：漏填列宽的字段**不会报错，只会被截断**。因此 `BTYPE=1` 的可见字段必须显式给出满足标签最小宽度的 `列宽`，不能依赖默认值。
 - **【硬规则 9.6.7】** `BTYPE=1` 的 `类型` 是**列格式**而非控件类：`NF`/`NZ`/`ND`/`NJ`/`NB`/`N`/`N1..N6` 设数字格式，`D` 设 `SetColDataType(8)` + `yyyy-mm-dd`，`C` 设复选框列。这与动态单据表头的 `类型` 语义一致但消费路径不同，取值仍以 9.1 节为准。
+- **【硬规则 9.6.8】** `BTYPE=1` 的**身份列必须命名为 `FID`**。`UForm1.cpp::CUForm1::OnTysave` 写死
+  `t = m_grid.GetColPos("FID"); if (t < 0) return;`——取不到 `FID` 列就**静默返回**，
+  整个保存流程被跳过：没有 INSERT、没有报错、没有提示、界面无变化。
+  表现为用户说的“新增完了保存不上”。该列是隐藏身份列（`显示=0`），
+  `显示名/标签名` 改成 `FID` 不影响可见界面。`HID` 不是这个位置的合法取值——
+  那是动态单据 `PO=1` 表头的约定，与 `UForm1` 无关，不要把两者混用。
+  同一个 `UForm1` 保存路径还按 `GetColPos("分录号")`、`GetColPos("单号 ")`（注意末尾有空格）跳过列，见 `UForm1.cpp` 的展开/定位逻辑。
 
 ### 9.7 `主键` 与 `关键字段`
 
