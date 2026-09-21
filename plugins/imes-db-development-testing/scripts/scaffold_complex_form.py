@@ -193,8 +193,8 @@ def base_type(value: str) -> str:
 # Physical SQL type -> default SYS_TbColumn.类型, per client-source-contract.md 9.1.
 # The client formats the saved literal from 类型: numeric columns must be N* so an
 # empty cell writes 0.00 instead of '', which a numeric column rejects.
-_NUMERIC_TYPES = {
-    "bigint", "int", "smallint", "tinyint",
+_INTEGER_TYPES = {"bigint", "int", "smallint", "tinyint"}
+_NUMERIC_TYPES = _INTEGER_TYPES | {
     "decimal", "numeric", "float", "real", "money", "smallmoney",
 }
 _DATE_TYPES = {"date", "datetime", "datetime2", "smalldatetime", "datetimeoffset"}
@@ -207,6 +207,8 @@ def default_meta_type(sql_type: str) -> str:
     if base in _DATE_TYPES:
         return "D"
     if base in _NUMERIC_TYPES:
+        # "N" without a digit means precision 0 and writes the literal 0.
+        # Integer columns reject "0.00", so they must stay at N/N0.
         return "N"
     # bit is C only when the field is a flag/status; the caller decides that via
     # an explicit meta_type, because semantics are not derivable from the type.

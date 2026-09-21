@@ -130,8 +130,8 @@ def expected_metadata_control(field_name: str) -> str:
     return "S" if str(field_name).upper().endswith("_PJLX") else "E"
 
 
-_NUMERIC_TYPES = {
-    "bigint", "int", "smallint", "tinyint",
+_INTEGER_TYPES = {"bigint", "int", "smallint", "tinyint"}
+_NUMERIC_TYPES = _INTEGER_TYPES | {
     "decimal", "numeric", "float", "real", "money", "smallmoney",
 }
 _DATE_TYPES = {"date", "datetime", "datetime2", "smalldatetime", "datetimeoffset"}
@@ -147,6 +147,20 @@ def physical_numeric_fields(sql: str) -> set[str]:
     pattern = re.compile(
         r"(?:\(|,)\s*\[?([A-Za-z_][A-Za-z0-9_]*)\]?\s+"
         r"(?:bigint|int|smallint|tinyint|decimal|numeric|float|real|money|smallmoney)\b",
+        flags=re.IGNORECASE,
+    )
+    return {match.group(1).upper() for match in pattern.finditer(sql)}
+
+
+def physical_integer_fields(sql: str) -> set[str]:
+    """Return physical fields declared integer in the pack.
+
+    An integer column rejects the literal '0.00' that a fractional N* type
+    writes (CONVERT(int,'0.00') fails), so it may only use N or N0.
+    """
+    pattern = re.compile(
+        r"(?:\(|,)\s*\[?([A-Za-z_][A-Za-z0-9_]*)\]?\s+"
+        r"(?:bigint|int|smallint|tinyint)\b",
         flags=re.IGNORECASE,
     )
     return {match.group(1).upper() for match in pattern.finditer(sql)}
@@ -250,6 +264,7 @@ def validate_forward(path: Path, expected_rid_start: int | None = None, expected
         errors.append(f"帮助按钮宽度必须为正整数，实际{browse_button_width}")
     date_fields = physical_date_fields(sql)
     numeric_fields = physical_numeric_fields(sql)
+    integer_fields = physical_integer_fields(sql)
     route_inserts = _iobdzd_inserts(sql)
     if not route_inserts:
         errors.append("forward.sql 没有 IOBDZD INSERT")
@@ -337,6 +352,10 @@ def validate_forward(path: Path, expected_rid_start: int | None = None, expected
             # (NF/NZ/ND/NJ/NB/N1..N6); anything not starting with N is wrong.
             if expected_type == "N":
                 type_ok = metadata_type.startswith("N")
+                # An integer column rejects the fractional literal a
+                # precision-bearing N* writes, so only N/N0 is valid there.
+                if type_ok and field_name.upper() in integer_fields:
+                    type_ok = metadata_type in ("N", "N0")
             else:
                 type_ok = metadata_type == expected_type
             if not type_ok:
