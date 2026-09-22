@@ -289,6 +289,8 @@ For new or ER-derived forms, compare field sets in both directions before deploy
 
 ### 4.1 主表默认布局生成
 
+**作用域：整节只适用于 `PO=1` 表头控件。** 几何四列 `左坐标`/`顶坐标`/`宽度`/`高度` 的唯一消费者是 `SGSoft.cpp` 的 `CSGSoftApp::CreateDlgItemWithArrayDateTime`，而 `Bill.cpp` 只把表头记录集交给它。网格路径 `CSGSoftApp::LoadGridSet` 逐行只读 `顺序`、`列宽`、`管道字符`、`显示`、角色列、`只读`、`帮助`、`合并`、`对齐`、`类型`，**从不读这四列**；`BTYPE=1` 表单和动态单据明细 `PO>1` 都走这条路径。所以明细行的布局契约只有 `顺序` + `列宽`，其坐标值是惰性数据：不参与渲染、不能当布局证据、也不构成重叠或缺陷判据。源码证据见 `references/client-source-contract.md` 9.6.9。
+
 For every visible dynamic header (`PO=1`) with custom fields, derive coordinates from a working same-version header with the nearest proven equivalent layout before inserting metadata. Read `Bill.cpp::CBill::OnSize` and the active `MoveToItemSJ`/`MoveToItem`/`MoveToMid` helpers first: the client repositions the footer controls at runtime, so those controls are anchors, not ordinary custom-field slots. Layout generation is a contract, not a collection of convenient constants.
 
 #### 4.1.1 先锁定可用区域
@@ -372,6 +374,7 @@ The fast path reduces repeated parsing and counting; it does not bypass route, c
 - For asset-type/basic-data help, prove the physical code column and the full `IOJCBDZD` route (`BTYPE`, table, key, display column, help key) plus `SYS_TbColumn.GLZD/帮助`. A Chinese label alone is not a working lookup.
 - Ordinary metadata rows keep `标识` `NULL` unless a confirmed client source and working route prove a real `FF_BS` producer. The string `'0'` is not a universal false value.
 - 元数据取值（`类型`/`控件`/`顺序`/`RID`/`标识`/`列宽`/`主键`/`关键字段`/锚点后缀）统一按 `references/client-source-contract.md` 第 9 节执行；本清单只列门禁，不复述取值表。No other type or control may be inferred from bit-ness, numeric precision, label, or layout.
+- 几何四列 `左坐标`/`顶坐标`/`宽度`/`高度` 只作用于 `PO=1` 表头控件（`CreateDlgItemWithArrayDateTime`）。明细行 `PO>1` 与 `BTYPE=1` 网格走 `LoadGridSet`，该路径不读这四列，明细布局契约只有 `顺序` + `列宽`。不得用明细坐标判定重叠、缺陷、布局正确性，也不得因明细坐标相同就报告元数据冲突；`client-source-contract.md` 9.6.9。
 - For an existing metadata repair, the preflight must assert the exact current (old) value and the forward statement must update only that old value to the proven target value; never put the desired value in the update predicate, because that makes a no-op look like a successful repair. Rollback must assert the repaired value before restoring the captured old value.
 - 每个 `(表名,PO)` 元数据组的 `主键`/`顺序` 唯一性与连续性、查询页 `关键字段` 与 `显示名` 别名唯一性，按 `client-source-contract.md` 第 9.3、9.7 节执行。
 - Every required physical field must close to exactly one maintenance metadata row and one independent query metadata row (or the proven route-specific equivalent); every metadata field must close back to a physical field or a proven lookup projection. Empty `显示名/标签名`, physical-name fallback, missing ER label, missing query projection, or extra metadata field blocks generation and deployment.

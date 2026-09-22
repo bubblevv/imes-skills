@@ -1,6 +1,6 @@
 {
   "name": "imes-db-development-testing",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "设计、开发、测试并排查 IMES SQL Server 数据库对象与业务逻辑（含业务表/元数据表单/BDJB 审核/动态单据/存储过程）",
   "author": {
     "name": "llk",
