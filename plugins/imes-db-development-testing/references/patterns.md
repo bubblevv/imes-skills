@@ -443,6 +443,16 @@ Safe fix pattern: inspect `sys.columns` for the target `SYS_TbColumn`; use the c
 
 Verification: print the resolved role-column names and ordinals before writing, assert standard metadata flags remain equal to their inserted values, assert every actual role column on new rows is `1`, and verify `admin` separately with type-aware conversion. Reject the deployment if `RID` or the workspace role boundary is absent.
 
+## NULL Role Columns Surface As A Blank `iMes` Dialog
+
+Symptom: a newly registered dynamic bill opens a modal error box whose **body is empty**, whose title is the application name (`iMes`), and which reappears every time the bill is opened; the runtime log shows every `ado_query_error`-free stage, `CBill.InitForm` finishes normally, and the SQL behind the form succeeds when replayed by hand.
+
+Likely cause: the newly inserted `SYS_TbColumn` rows have `NULL` in the per-role visibility columns (`admin`/`ck01`/`js01`/`sc01`/`CG01`/`PZ01`/`XS01`/`CW01`/`yx03`/`zz01`/`yx02`/`ZJB01`/`PMC01`/`SC02`/`YF`). `LoadGridSet` evaluates `grid->SetColHidden(a,!(bShow&(bool)rec.GetCollect(<current role>)))` with no inner guard; coercing `VT_NULL` to `bool` throws `_com_error`, the function-level `catch(_com_error&e)` swallows it into `AfxMessageBox(e.Description(),MB_OK,0); return;`, and both the message text and the COM description are empty. Nothing reaches the runtime log because no SQL failed. The header path (`CreateDlgItemWithArrayDateTime`) wraps the same read in an inner `try/catch(...)`, so a header-only bill is silent instead of popping the box.
+
+Safe fix pattern: never insert new metadata with role columns defaulted by the server (they are nullable). Author the insert with all 15 role columns explicitly set to `1` so every role sees every field on day one, and grant per-role restrictions later as a deliberate change. Diagnose by counting `NULL` in the role columns for that form name and its `<MC>查询` companion, and compare against the database baseline: `NULL` is rare but not impossible pre-existing metadata (a live `ZYDMES` deployment had 117 such rows on one non-`IOBDZD` form), so never conclude "NULL means this deployment" without checking whether the rows predate it. Repair only the rows you inserted; do not bulk-update the table.
+
+Verification: the gate must assert `COUNT(*) = 0` for role-column `NULL` across both `<表单>` and `<表单>查询`, in the same verification script that checks row counts, and the deployment must abort if the pre-fix count does not match the number of rows it inserted. After the repair, reopen the bill and confirm no popup, plus confirm the detail grid's column widths and formats actually applied (a partial column setup is the fingerprint of the swallowed exception).
+
 ## Static INSERT Arity Is A Deployment Gate
 
 Symptom: the SQL script executes but `控件`, `RID`, `admin`, or a trailing permission value lands in the wrong column, or SQL Server reports a column/value count error only after a large generated statement is run.

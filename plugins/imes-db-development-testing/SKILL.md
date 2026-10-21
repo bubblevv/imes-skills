@@ -68,7 +68,7 @@ description: Develop, test, or diagnose IMES SQL Server databases across custome
 
 当请求涉及点检模板、点检记录单、审核单、表头/表体单据、独立单据查询页、`IOBDZD`、审核/撤审 `BDJB` 或表头表体联动时，先读 `references/complex-form-fast-path.md`，再使用 `scripts/scaffold_complex_form.py`。其中“主从动态单据固定九步回归门禁”是强制顺序：目标/分类 → 固定字段卡 → 业务数量归属 → BOM 版本联动 → 查询字段/别名 → 客户端派生 SQL 回放 → PJLX 实测宽度与表头布局 → BDJB/工作区/sysmenu/角色 → 事务、回滚与真实 Release 冒烟。不得只因建表、元数据插入或普通 SQL 可执行就跳到部署或宣布完成。
 
-固定为四阶段：字段契约确认 → 前期只读准备 → 中期事务部署 → 后期验证与隔离 CRUD。可从 ER SVG 快速生成审阅阻断包；只有物理字段、主外键、IOBDZD 路由、维护页/查询页 `SYS_TbColumn`、审核布局证据、BDJB 规则和 SYSWSPACE 契约闭合后，才允许生成可执行 `forward.sql`。新生成元数据的 `类型` 按物理列类型取默认值：数值列 `N`、日期列 `D`、字符列 `S`、标志/状态类 `bit` 列 `C`，其它未提到的为 `S`（见 `client-source-contract.md` 9.1）；普通字段的 `控件` 固定为 `E`，`PJLX/凭证类型` 字段（字段名后缀 `*_PJLX`）固定为 `S`。`SYS_TbColumn.标识` 保持 `NULL`，不插入 `nID`；动态角色权限和 `admin` 后权限默认全部授权。审核的左坐标、宽度、高度和参考自然间距必须来自同版本有效单据；`SHBZ` 是表头下限锚点但不是必须独占的列，按横向装箱规则能与当前行字段同排时应同行，只有完整占用区越过右边界才换行；换行时才用最后一个较早行的非固定字段底边加自然间距推导审核顶坐标。审核底边仍决定表头下限，禁止机械复制参考坐标造成大空洞。生成元数据前必须形成逐字段闭合矩阵：物理列 → 维护页 `(表名,PO,字段名)` → 独立查询页 `(查询名,PO,字段名)` → `显示名/标签名`。每个必需物理字段必须在对应字段集恰好出现一次；每个元数据字段必须回到真实物理列或已证实的关联投影；空文案、物理字段名回退或缺失 ER 中文标签均为硬阻断。复杂表单不走 `BTYPE=1/UForm1` 快速通道；本技能仍不创建 MFC/C++/RC 资源。
+固定为四阶段：字段契约确认 → 前期只读准备 → 中期事务部署 → 后期验证与隔离 CRUD。可从 ER SVG 快速生成审阅阻断包；只有物理字段、主外键、IOBDZD 路由、维护页/查询页 `SYS_TbColumn`、审核布局证据、BDJB 规则和 SYSWSPACE 契约闭合后，才允许生成可执行 `forward.sql`。新生成元数据的 `类型` 按物理列类型取默认值：数值列 `N`、日期列 `D`、字符列 `S`、标志/状态类 `bit` 列 `C`，其它未提到的为 `S`（见 `client-source-contract.md` 9.1）；普通字段的 `控件` 固定为 `E`，`PJLX/凭证类型` 字段（字段名后缀 `*_PJLX`）固定为 `S`。`SYS_TbColumn.标识` 保持 `NULL`，不插入 `nID`；动态角色权限和 `admin` 后权限默认全部授权——这条对 **`SYS_TbColumn` 和 `SYSWSPACE` 两张表同时成立**，新行的每一个角色列都必须显式写入 `1`，留 `NULL` 会在打开单据时弹出无正文错误框（见 Gate 4「角色列是两张表」）。审核的左坐标、宽度、高度和参考自然间距必须来自同版本有效单据；`SHBZ` 是表头下限锚点但不是必须独占的列，按横向装箱规则能与当前行字段同排时应同行，只有完整占用区越过右边界才换行；换行时才用最后一个较早行的非固定字段底边加自然间距推导审核顶坐标。审核底边仍决定表头下限，禁止机械复制参考坐标造成大空洞。生成元数据前必须形成逐字段闭合矩阵：物理列 → 维护页 `(表名,PO,字段名)` → 独立查询页 `(查询名,PO,字段名)` → `显示名/标签名`。每个必需物理字段必须在对应字段集恰好出现一次；每个元数据字段必须回到真实物理列或已证实的关联投影；空文案、物理字段名回退或缺失 ER 中文标签均为硬阻断。复杂表单不走 `BTYPE=1/UForm1` 快速通道；本技能仍不创建 MFC/C++/RC 资源。
 
 ## Existing Single-Table (`BTYPE=1`) Incident: Mandatory First Pass
 
@@ -281,7 +281,36 @@ Use one reviewed transaction for related metadata writes, with row-count asserti
 4. For every dynamic bill, add a separate non-empty `<IOBDZD_MC>查询` `SYS_TbColumn` field set. It is not a second `IOBDZD`. Build it from the original bill's cross-table joins, keep one query row per output alias, remove duplicate aliases such as header/detail `ID`/`单号`/`备注`, keep exactly one query `主键` and one query `关键字段`, and verify the client-shaped title SQL plus derived-table paging/count SQL. The query set must retain exactly one visible, required header document-number field (`<HEADER>_SJDH`, alias `单号`) and one visible, required header-date field (`<HEADER>_YWRQ`, alias `日期`) as stable default-sort keys; deduplication must use explicit aliases rather than deleting either anchor. Distinguish the two empty-source failures: `SELECT  FROM <valid joins>` means the query field list is empty; `SELECT <fields> FROM )` means `GetCrossTable` returned empty and its route/`GLZD` join contract failed. Never copy both header and detail identity rows under the same display name.
 5. Add `IOYYGX` only for proven extra operations, references, or upstream/downstream consumers. Add `IOPOPDLG` only when the active source uses its fallback relation. Validate operation uniqueness, enabled flags, `CZ/CZD/CX`, `GLTJ` placeholders, red/blue branches, `SYLJ/XYLJ` replacement, and one-result-set/column-shape contracts.
 6. For dynamic bills, register real active `BDJB` rules using the value the active client actually queries (normally visible `IOBDZD_MC`), including audit and cancel-audit symmetry where applicable. Do not add no-op rules merely to pass initialization.
-7. Create `SYSWSPACE` parent, leaf, and operation-permission rows in the target hierarchy; set the actual role columns and verify the leaf is returned for the intended role. `SYSWSPACE_MC` is a runtime business name used by `AutoOpen` and permission lookup, so it must match the new `IOJCBDZD_MC`/`IOBDZD_MC` and `SYS_TbColumn.表名`, and must be globally unique in the target database. If a generic name such as `物料` already exists, choose a business-qualified visible name and propagate it through every route, metadata, workspace, help, and verification row; never rename only the workspace text or overwrite an existing node. Preflight must check both generated-name duplicates and existing `SYSWSPACE_MC`/form-name collisions before DDL or metadata writes. For newly inserted form/metadata rows, default every role-permission column that actually exists in the target schema to `1` (authorized), unless the request explicitly requires restriction; discover role columns from `sys.columns` and never invent role names. Do not overwrite existing permissions or bulk-authorize unrelated existing rows. Every new `IOBDZD` header/detail bill must also carry the fixed `sysmenu` set from the Sales Order reference: `显示关联单据`、`保存列宽`、`列配置`、`从EXCEL导入`、`说明`、`附件`、`复制分录`, with exact `topfloor/submenu/xh/icon/pmenu/trimenu/uid` values recorded in the contract. A leaf without parents, role grants, operation rows, or this required menu set is incomplete.
+7. Create `SYSWSPACE` parent, leaf, and operation-permission rows in the target hierarchy; set the actual role columns and verify the leaf is returned for the intended role. `SYSWSPACE_MC` is a runtime business name used by `AutoOpen` and permission lookup, so it must match the new `IOJCBDZD_MC`/`IOBDZD_MC` and `SYS_TbColumn.表名`, and must be globally unique in the target database. If a generic name such as `物料` already exists, choose a business-qualified visible name and propagate it through every route, metadata, workspace, help, and verification row; never rename only the workspace text or overwrite an existing node. Preflight must check both generated-name duplicates and existing `SYSWSPACE_MC`/form-name collisions before DDL or metadata writes. Do not overwrite existing permissions or bulk-authorize unrelated existing rows. **For newly inserted rows, default every role column to `1` in BOTH tables** — see the two-table rule below; authorizing one table and not the other is the most common way this gate "looks done" while the bill still fails to open. Every new `IOBDZD` header/detail bill must also carry the fixed `sysmenu` set from the Sales Order reference: `显示关联单据`、`保存列宽`、`列配置`、`从EXCEL导入`、`说明`、`附件`、`复制分录`, with exact `topfloor/submenu/xh/icon/pmenu/trimenu/uid` values recorded in the contract. A leaf without parents, role grants, operation rows, or this required menu set is incomplete.
+
+##### 角色列是两张表，不是一张
+
+`SYSWSPACE` 和 `SYS_TbColumn` **各有一套同名角色列**（`admin`/`ck01`/`js01`/`sc01`/`CG01`/`PZ01`/`XS01`/`CW01`/`yx03`/`zz01`/`yx02`/`ZJB01`/`PMC01`/`SC02`/`YF`，从 `sys.columns` 实测，不得臆造；目标库若已增删角色列，以 `sys.columns` 为准）。新建单据时**两张表的新行都必须全置 `1`**（除非用户明确要求限制某角色），只配其中一张是本 skill 最容易漏的门禁：
+
+| 表 | 角色列语义 | 漏配后果 |
+|---|---|---|
+| `SYSWSPACE` | 表单/操作对角色可见 | 树里看不到节点、点开提示需管理员授权 |
+| `SYS_TbColumn` | **字段**对角色是否显示 | 见下，会抛异常并被吞掉 |
+
+`SYS_TbColumn` 角色列为 `NULL` 的失效路径（本 skill 已实际踩中）：
+
+| 读取点 | 源码写法 | 角色列 `NULL` 的后果 |
+|---|---|---|
+| `LoadGridSet`（网格/明细，`SGSoft.cpp:2262`） | `grid->SetColHidden(a,!(bShow&(bool)rec.GetCollect(<角色>)))`，**无内层 try** | `VT_NULL` 转 `bool` 抛 `_com_error`，被函数级 `catch(_com_error&)` 接住，执行 `AfxMessageBox(e.Description(), MB_OK, 0)`——**`Description` 为空、标题取默认值 `iMes`**，即用户看到的无正文错误框；`LoadGridSet` 直接 `return`，后续列设置与数据加载全部跳过 |
+| `CreateDlgItemWithArrayDateTime`（表头）、`CreateDlgItemWithArray` | 同一 `GetCollect(<角色>)` 外包了**内层 `try{...}catch(...){}`** | 异常被吞、`bUserShow` 保持初值 `true`，**不弹框**，字段按正常显示 |
+
+因此无正文 `iMes` 弹窗只可能来自网格路径；表头角色列为 `NULL` 是**静默**的。日志里也没有 `ado_query_error`，因为 SQL 本身全部成功——没有报错文字时，这个症状是唯一能指向角色列的线索。反过来，角色列被误填 `0`（而不是 `NULL`）不会抛异常，只会把该角色下整列静默隐藏，同样不报错。
+
+因此本门禁的验证断言必须写进 verification 脚本，而不是只写在部署步骤里：
+```sql
+-- 期望 0；全库绝大多数既有行是 1/0，但仍有个别历史数据留着 NULL，
+-- 所以判定依据是「本次插入的行」，不是「全库是否出现过 NULL」。
+SELECT COUNT(*) FROM dbo.SYS_TbColumn
+WHERE 表名 IN (N'<表单>', N'<表单>查询')
+  AND (admin IS NULL OR ck01 IS NULL OR js01 IS NULL OR sc01 IS NULL OR CG01 IS NULL
+       OR PZ01 IS NULL OR XS01 IS NULL OR CW01 IS NULL OR yx03 IS NULL OR zz01 IS NULL
+       OR yx02 IS NULL OR ZJB01 IS NULL OR PMC01 IS NULL OR SC02 IS NULL OR YF IS NULL);
+```
 
 #### 3.1 字段闭合与中文映射
 
@@ -346,6 +375,7 @@ Run parse-only checks, then read-only contract checks in every environment and t
 - each enabled `IOYYGX`/`IOPOPDLG` relation and `SYLJ/XYLJ` result shape;
 - applicable `BDJB` save/audit/cancel-audit behavior and rollback;
 - workspace hierarchy, role visibility, and operation authorization;
+- **both role-column sets**: `SYS_TbColumn` role columns for `<表单>` and `<表单>查询` must be checked for `NULL` and must return `0` rows — a `NULL` there raises an empty-bodied `iMes` dialog on open and is invisible to every SQL-level check (`references/client-source-contract.md` §3 hard rule 3.4). This assertion belongs in the verification script itself, next to the row-count checks, not only in the deployment steps;
 - zero test-data residue after rollback.
 
 If a runtime-shaped SQL check fails (including `SELECT  FROM ...`), a control initialization error, a dangling metadata field, an unresolved lookup/relation, a missing lifecycle rule, or an unauthorized workspace leaf is found, report the evidence and stop. Do not declare the form complete or continue adding unrelated metadata.
@@ -385,9 +415,11 @@ The fast path reduces repeated parsing and counting; it does not bypass route, c
 
 | Route | Physical model | Required database objects | Completion gate |
 |---|---|---|---|
-| `BTYPE=1` basic data | one complete table | `IOJCBDZD`, visible `SYS_TbColumn`, workspace parent/leaf and role grant | `UForm1` field-prefix rule, physical-field mapping, CRUD and role visibility |
+| `BTYPE=1` basic data | one complete table | `IOJCBDZD`, visible `SYS_TbColumn` (含**角色列全非 NULL**), workspace parent/leaf and role grant | `UForm1` field-prefix rule, physical-field mapping, CRUD and role visibility |
 | `BTYPE=2` category/tree | tree master + independent right-side dataset | `IOJCBDZD` with `LBTABLE/LBNAME` and `TABLE/MC`, two metadata sets, workspace/roles | tree selection filters the right dataset; it is not a shared document-number save unit |
-| `IOBDZD` dynamic bill | header + one or more detail tables | `IOBDZD`, lookup `IOJCBDZD`, maintenance and `<MC>查询` metadata, applicable `IOYYGX/IOPOPDLG`, active `BDJB`, workspace operation permissions, required standard `sysmenu` button set | `PO`/keys/controls/query SQL/relations/lifecycle/roles/buttons all pass; otherwise incomplete |
+| `IOBDZD` dynamic bill | header + one or more detail tables | `IOBDZD`, lookup `IOJCBDZD`, maintenance and `<MC>查询` metadata (**角色列全非 NULL**), applicable `IOYYGX/IOPOPDLG`, active `BDJB`, `SYSWSPACE` 操作权限（角色列=1）, required standard `sysmenu` button set | `PO`/keys/controls/query SQL/relations/lifecycle/**两套角色列**/buttons all pass; otherwise incomplete |
+
+> "roles" 指**两处**：`SYS_TbColumn` 的字段角色列（NULL → 无正文 `iMes` 弹窗）与 `SYSWSPACE` 的操作角色列（=0 → 看不到/点不开）。只验其中一处不得判为通过。
 
 ## Bundled Tools
 

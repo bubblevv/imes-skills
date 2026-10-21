@@ -1,5 +1,9 @@
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
+/* The role-column resolver reads sys.columns through an XML PATH aggregate,
+   and xml.value() requires QUOTED_IDENTIFIER ON.  sqlcmd defaults it OFF, so a
+   consumer that does not set it explicitly would fail on that one statement. */
+SET QUOTED_IDENTIFIER ON;
 
 /*
     Read-only live audit for metadata-backed header/detail bills.
@@ -202,6 +206,68 @@ WHERE NULLIF(LTRIM(RTRIM(ISNULL(c.[字段名],N''))),N'') IS NULL
    OR NULLIF(LTRIM(RTRIM(ISNULL(c.[类型],N''))),N'') IS NULL
    OR NULLIF(LTRIM(RTRIM(ISNULL(c.[控件],N''))),N'') IS NULL
    OR c.RID IS NULL OR c.RID<=0;
+
+/*
+    Role columns are runtime visibility flags, not form flags.
+
+    The client reads GetCollect(<current role>) for every metadata row.  A NULL
+    there throws _com_error: the grid path (LoadGridSet) has no inner guard, so
+    the exception is swallowed by the function-level catch into
+    AfxMessageBox(e.Description(),MB_OK,0) with an empty body and the default
+    iMes title, and no SQL error is ever logged.  The header path has an inner
+    try/catch(...) and stays silent.
+
+    The role set is resolved from sys.columns instead of being hard-coded, so a
+    deployment with a different role vocabulary still gets checked.  Only bit
+    columns after RID are treated as role columns; admin follows its actual type.
+*/
+DECLARE @RoleNullSum nvarchar(max);
+DECLARE @RoleSql nvarchar(max);
+DECLARE @RoleHits xml;
+
+SELECT @RoleNullSum = STUFF((
+    SELECT N'+SUM(CASE WHEN '+QUOTENAME(c.name)+N' IS NULL THEN 1 ELSE 0 END)'
+    FROM sys.columns AS c
+    WHERE c.object_id=OBJECT_ID(N'dbo.SYS_TbColumn',N'U')
+      AND (c.system_type_id=104 /* bit */ OR c.name=N'admin')
+      AND c.column_id>
+          (SELECT r.column_id FROM sys.columns AS r
+           WHERE r.object_id=c.object_id AND r.name=N'RID')
+    ORDER BY c.column_id
+    FOR XML PATH(''),TYPE).value(N'.',N'nvarchar(max)'),1,1,N'');
+
+IF @RoleNullSum IS NOT NULL
+BEGIN
+    /*
+        The resolved role list is only known at run time, so the scan is dynamic.
+        Results come back as one XML scalar: a table variable is invisible inside
+        sp_executesql, and staging into a temp table would make this read-only
+        audit script create and drop objects on the audited server.
+    */
+    SET @RoleSql=N'
+SELECT @Hits = (
+    SELECT c.[表名] AS FormName,
+           '+@RoleNullSum+N' AS NullCells
+    FROM dbo.SYS_TbColumn AS c
+    GROUP BY c.[表名]
+    HAVING '+@RoleNullSum+N'>0
+    FOR XML RAW, TYPE
+);';
+
+    EXEC sp_executesql @RoleSql, N'@Hits xml OUTPUT', @Hits=@RoleHits OUTPUT;
+
+    INSERT @Findings (Severity,FormName,CheckCode,Detail)
+    SELECT 'FAIL',x.c.value(N'@FormName',N'nvarchar(100)'),'META_ROLE_NULL',
+           N'角色列为 NULL：打开单据会弹出无正文的 iMes 错误框，且日志无 ado_query_error。NULL 单元格数='
+           +x.c.value(N'@NullCells',N'nvarchar(20)')
+    FROM @RoleHits.nodes(N'/row') AS x(c)
+    WHERE EXISTS
+          (
+              SELECT 1 FROM @Forms AS f
+              WHERE f.FormName=x.c.value(N'@FormName',N'nvarchar(100)')
+                 OR f.FormName+N'查询'=x.c.value(N'@FormName',N'nvarchar(100)')
+          );
+END;
 
 /*
     The FF_BS trigger is a non-empty 标识.  The client tests GetLength()>0, so an

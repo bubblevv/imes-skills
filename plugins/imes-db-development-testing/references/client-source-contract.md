@@ -166,7 +166,11 @@ FROM 来源按顺序回退，第一个非空胜出：
 - **【硬规则 3.1a】** CBill 新增时 `SetBlank` 只对 `置空=1` 的行处理；`类型='D'` 写入 `AppData.adddate`，而不是读取 `默认值`。`AppData.adddate` 来自登录窗口的账务日期，通常初始化为客户端当前日期但可以被用户选择的账务日期覆盖。要同时保证新增显示和直接 SQL 插入兜底，日期字段必须有 `类型='D'`、维护页 `置空=1`，物理日期列应有 `GETDATE()` 默认；只改 `SYS_TbColumn.默认值` 不能修复日期不显示。
 - **【硬规则 3.2】** `类型`/`字段名`/`标签名`/`控件` 被直接转成字符串；`显示`、`必填`、`只读` 被直接转 `bool`；`RID` 被转 `(int)(double)`。这些列出现 `NULL` 会抛异常并被 `catch(...)` 吞掉，最终只显示“控件初始化时出错!”——**表单打不开，菜单已建好**。每个 `PO=1` 行都必须有非空 `控件`、`类型`、`字段名`、`标签名`、`RID`，以及非空布尔标志和布局值。
 - **【硬规则 3.3】** `左坐标/顶坐标/宽度/高度` 为空时回退到 `40/60/100/80`，多个空坐标字段会叠在同一处；可见控件必须有正数宽高。
-- **【硬规则 3.4】** 源码还会按**角色名**取同名列（`GetCollect(<当前角色>)`）决定可见性。角色列缺失会被内层 `catch(...)` 吞掉，不报错；但若误把权限列当表单标志填错，会静默隐藏字段。
+- **【硬规则 3.4】** 源码还会按**角色名**取同名列（`GetCollect(<当前角色>)`，如 `admin`/`sc01`）决定可见性。角色列在两张表里各有一套：`SYS_TbColumn`（字段可见）与 `SYSWSPACE`（表单/操作可见）。**`SYS_TbColumn` 角色列为 `NULL` 时两条路径行为不同**：
+  - `CreateDlgItemWithArrayDateTime`（`SGSoft.cpp:5641`）与 `CreateDlgItemWithArray`（`:5927`）把这次读取包在内层 `try{...}catch(...){}` 里，异常被吞、`bUserShow` 保持初值 `true` → **静默按正常显示，不弹框**。
+  - `LoadGridSet`（`SGSoft.cpp:2262`）**没有内层 try**，`(bool)` 转换在 `VT_NULL` 上抛 `_com_error`，由函数级 `catch(_com_error &e)` 接住并执行 `AfxMessageBox(e.Description(),MB_OK,0); return;`。`Description` 为空、标题默认 `iMes` → **无正文错误框，且该格从第一列起就不再设置**（明细网格列宽/格式/隐藏全部未生效）。
+  - 角色列被填成 `0` 不抛异常，只把该角色下整列静默隐藏；只有 `NULL` 才会走到上面的弹框路径。
+  - 新建元数据的每一行都必须把 15 个角色列全部写成 `1`（不许留 `NULL`，也不要用「按角色逐个授权」当默认）。
 - **【硬规则 3.5】** 创建控件用的 `RID` 必须能通过 `GetDlgItem(RID)` 命中；`GenUpdateSqlFromForm` 对 `主键=1` 行直接 `GetDlgItem(RID)->...`，`RID` 指向不存在的控件会在保存时崩溃。
 
 ---
@@ -290,6 +294,8 @@ order by SYSWSPACE_MC
 | 单据标题 SQL 语法错误，`FROM` 后为空 | `IOBDZD_MC`/`IOPOPDLG_MC`/`IOJCBDZD_MC` 三条回退全空 | 按上述三个键分别查表；检查 `GLZD` 行的 `LMark/RMark` 是否 `NULL` |
 | `SELECT  FROM <合法 JOIN>` | 字段集为空或提前返回 | `SYS_TbColumn` 该 `表名` 行数；`显示名`/`字段名` 空值数 |
 | 打开单据报“控件初始化时出错!” | `PO=1` 某行 `控件`/`类型`/`RID`/`显示`/`必填`/`只读` 为 `NULL` | `PO=1` 行按 `顺序` 列出上述列的空值分布 |
+| 打开单据弹出**无正文**错误框（标题 `iMes`，日志无 `ado_query_error`，SQL 全部成功） | `SYS_TbColumn` 角色列为 `NULL`：`LoadGridSet:2262` 的 `(bool)GetCollect(<角色>)` 在 `VT_NULL` 上抛 `_com_error`，被 `catch(_com_error&)` 接住后 `AfxMessageBox(e.Description())` | `SELECT 表名,COUNT(*) FROM SYS_TbColumn WHERE 表名 IN (N'<表单>',N'<表单>查询') AND admin IS NULL GROUP BY 表名`；再按 `nID` 与创建时间区分「本次插入」和历史遗留行，`NULL` 极少但历史数据里确实存在 |
+| 表头字段正常但**明细网格整列异常**（列宽/格式未生效、列错位） | 同上；`LoadGridSet` 在抛错处直接 `return`，后续 `SetColDataType`/`SetColHidden` 未执行 | 同上；注意 `CreateDlgItemWithArrayDateTime` 有内层 try，**表头角色列 `NULL` 不弹框**，只有网格路径弹 |
 | 表头某字段位置叠在一起 | `左坐标/顶坐标/宽度/高度` 为空 | 同上，列出空坐标行 |
 | 日期字段不能键盘输入 | `类型='D'` 走只读日期框（右键日历） | 确认是否应为 `DT` |
 | 明细页签空白 | 该 `PO` 的 `GetDataField` 返回空 | `SYS_TbColumn` 该 `(表名,PO)` 行数 |
