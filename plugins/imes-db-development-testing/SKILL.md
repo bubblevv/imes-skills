@@ -1,6 +1,6 @@
 ---
 name: imes-db-development-testing
-description: Develop, test, or diagnose IMES SQL Server databases across customer environments, including 业务表设计、表结构迁移、索引与约束、存储过程、自定义报表、BDJB、PDA、报工、审核/撤审、回填、同步和生产报错. Use when the user asks to create or change database objects, validate database behavior, or investigate an exact IMES SQL entry point. This skill does not create MFC client forms or dialog resources.
+description: Develop, test, or diagnose IMES SQL Server databases across customer environments, including 元数据表单、SYSFMA 自动计算公式、业务表设计、表结构迁移、索引与约束、存储过程、自定义报表、BDJB、PDA、报工、审核/撤审、回填、同步和生产报错. Use when the user asks to create or change database objects, validate database behavior, or investigate an exact IMES SQL entry point. This skill does not create MFC client forms or dialog resources.
 ---
 
 # IMES数据库开发与测试
@@ -11,6 +11,7 @@ description: Develop, test, or diagnose IMES SQL Server databases across custome
 - For a new or changed business table, schema migration, index, constraint, view, function, trigger, or supporting procedure, read `references/schema-development.md` before designing or editing SQL.
 - For a new metadata-backed iMES form, read `references/document-form-contract.md` as well. It distinguishes `IOJCBDZD_BTYPE=1` single-table lookups, `BTYPE=2` category-tree/detail-dataset maintenance, and true `IOBDZD` header/detail bills. It defines the database-only contract across the business tables, `IOBDZD`, `IOJCBDZD`, `SYS_TbColumn`/`v_tbcolumn`, `IOYYGX`, `IOPOPDLG`, `BDJB`, `SYSWSPACE`, and required `sysmenu` metadata for the standard dynamic-bill buttons.
 - For an existing dynamic-bill reference/filter-only request, read `references/reference-fast-path.md` first. Use its narrow `IOYYGX`/source-date/preview/update/verification path; do not repeat the full dynamic-bill creation contract unless the route, metadata, lifecycle, or save behavior also changes.
+- For an existing dynamic-bill quantity or calculated-field issue driven by `SYSFMA`, read `references/sysfma-formula-fast-path.md`. Verify the active client's edit-event path and exact field mapping, then distinguish fill-only-empty from overwrite-and-recalculate semantics before changing a formula.
 - For an existing `IOJCBDZD_BTYPE=2/UForm2` form incident, read the mandatory BTYPE=2 first-pass below and `references/document-form-contract.md` before broad metadata comparison or DDL. The left tree has source-level hard-coded column names; a non-empty route and non-empty `v_tbcolumn` rows do not prove that the physical master table is runnable.
 - For a live database investigation or existing business-logic change, follow the evidence-first debugging workflow below.
 - Before designing or repairing any table, form, layout, or metadata row, read `references/client-source-contract.md`. It records the compiled-in table names, column names, aliases, control codes, suffix anchors and SQL shapes of the legacy client. The hard-rule list in `## 客户端源码硬规则` below is a subset and is not optional.

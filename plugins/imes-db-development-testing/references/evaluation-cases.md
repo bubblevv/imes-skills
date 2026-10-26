@@ -578,3 +578,16 @@ Pass criteria:
 - 给出“入口 → 已编译文件 → 元数据表 → 投影函数”的链路，并指出未编译文件里并存的另一套模型（例如 `v_fieldshow` + `表头=0/1`）不能作为契约；
 - 区分 `GetDataField`、`GetGroupField`、`GetCrossTable`、`GetCrossTableS` 四个入口的投影差异（`标识` 非空行被丢弃、`PO<=2` 限制、无别名时不加 `RMark` 前缀）；
 - 修改后分别回放受影响入口的 SQL，并说明共享同一份元数据的其它入口是否也变化。
+
+## Dynamic-Bill SYSFMA Formula Does Not Recalculate
+
+Prompt shape: the user reports that editing a quantity source field leaves a dynamic-bill calculated field unchanged, supplies an exact `SYSFMA` query, and asks to fix the formula configuration without changing client code.
+
+Pass criteria:
+
+- verifies the named target with `DB_NAME()` and `@@SERVERNAME`, then reads the supplied `SYSFMA` rows before assuming rules are missing;
+- matches `SYSFMA_MC`/`SYSFMA_CFX`/`SYSFMA_MDX` to the active `v_tbcolumn` fields and checks numeric trigger type;
+- inspects the current compiled client path for `AfterEdit` early returns, runtime query predicates (including whether `SYSFMA_PO` is used), formula substitution, and swallowed SQL errors;
+- identifies guards that preserve nonzero results, quantifies affected business rows read-only, and gets explicit confirmation before changing overwrite semantics;
+- if authorized, updates only the exact formula rows with old-value predicates, a transaction, expected-row assertion, compensating rollback, and post-write verification;
+- tests formula edge cases separately from real client acceptance and does not bulk-update business rows as part of a `SYSFMA` change.
