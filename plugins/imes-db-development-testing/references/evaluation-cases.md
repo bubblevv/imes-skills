@@ -579,6 +579,22 @@ Pass criteria:
 - 区分 `GetDataField`、`GetGroupField`、`GetCrossTable`、`GetCrossTableS` 四个入口的投影差异（`标识` 非空行被丢弃、`PO<=2` 限制、无别名时不加 `RMark` 前缀）；
 - 修改后分别回放受影响入口的 SQL，并说明共享同一份元数据的其它入口是否也变化。
 
+## 元数据 JOIN / 帮助路由批量报错（一次扫描，不要逐条试改）
+
+Prompt shape: 用户报某张表单打不开，或点帮助报错，接着按提示改了一两处元数据，结果又冒出新的报错（`from` → `with` → 列名无效 → 1013），越改越多；用户要求「下次别搞这么久」。
+
+Pass criteria:
+
+- **第一动作是跑 `scripts/scan_metadata_defects.sql`**，不是打开单张表单逐条试改；先拿到全量缺陷清单和汇总计数，再统一修改；
+- 按**报错原文**定位规则，不按现象猜：`from` 语法错 = `切换=1` 且 `GLZD` 为空；`with` 语法错 = `帮助` 填了 `BZMC` 中文名而非 `BZBH` 编码；`as` 语法错(156) = `GLZD` 无 `TOP=1` 路由；`1013` = 同一 Vkey 多行 `TOP=1` 或同表单多字段共用 `GLZD` 且都无别名；
+- 识别 `IOJCBDZD_TOP` 是 `bit`：写 `2` 会被隐式转成 `1`，「改了等于没改」，必须写 `0`；
+- 同一张表要多个不同过滤的帮助时，采用「一行 `TOP=1` 主路由 + 多行 `TOP=0` 帮助路由」；帮助窗口按 `IOJCBDZD_BZBH` 定位不看 `TOP`，所以 `TOP=0` 照样能弹；
+- `IOJCBDZD_Filter` 必须以 `AND` 开头、值带引号、只引用 `IOJCBDZD_Table` 自己的列；跨表过滤用子查询而非写死编码；
+- 单一 `GLZD` 缺路由通常影响几十张表单，补一条 `TOP=1` 主路由即可全部修好；必须在交付说明里写明**修复范围远大于用户报告的单点**；
+- 改动前先跑一次扫描留档作为「改前基线」，改完再跑对比；判断缺陷是否本次引入用「改前有没有」而不是「现在有没有」，既有缺口单列 `WARN`，不与本次 `FAIL` 混合计数；
+- 验收必须按 `GetDataField` + `GetCrossTable` 的别名/投影规则**复刻真实 SQL 并执行**，不能只看元数据「看起来对」；
+- 用户说「我在 XX 上单独建了一个帮助」时，先查 `IOJCBDZD` 里那条是否存在、`BZBH`/`TOP` 是什么，再决定是新建还是复用——不要改名或覆盖用户已建的配置行。
+
 ## Dynamic-Bill SYSFMA Formula Does Not Recalculate
 
 Prompt shape: the user reports that editing a quantity source field leaves a dynamic-bill calculated field unchanged, supplies an exact `SYSFMA` query, and asks to fix the formula configuration without changing client code.

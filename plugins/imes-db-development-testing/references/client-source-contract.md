@@ -138,7 +138,11 @@ FROM 来源按顺序回退，第一个非空胜出：
 - **编号输入行**：`GLZD=<关联路由>`、`切换=1`。物理列存编号；显示值来自 `IOJCBDZD_BYZD`；保存时源码执行
   `select <IOJCBDZD_VKEY> from <IOJCBDZD_TABLE> where <IOJCBDZD_BYZD>='<控件文本>'`。
 - **【硬规则 2.1】** 该反查必须唯一命中。命中不到时源码返回 `""`，直接写成 `字段名=''`——**用户选了值，保存后编号却是空**。任何 `切换=1` 行都要验证 `BYZD` 值在业务表唯一，或至少有稳定的排序命中行。
-- **【硬规则 2.2】** `帮助` 值走的是 `IOJCBDZD_BZBH`，与 `GLZD` 走的 `IOJCBDZD_MC` 是两条独立路由。帮助打不开、开了就关，先查 `IOJCBDZD_BZBH` 是否有该行，再看它的 `IOJCBDZD_VKEY`/`IOJCBDZD_BYZD`/`IOJCBDZD_TABLE` 是否非空——`CBaseItem::LoadData` 在 `VKEY` 为空时直接 `OnCancel()`（窗口一闪即关，无报错）。
+- **【硬规则 2.2】** `帮助` 值走的是 `IOJCBDZD_BZBH`，`GLZD` 则经目标 `v_tbcolumn` 定义匹配 `IOJCBDZD_Vkey`（标准投影还要求 `TOP=1`），是两条独立路由——`GLZD` 不是走 `IOJCBDZD_MC`。帮助打不开、开了就关，先查 `IOJCBDZD_BZBH` 是否有该行，再看它的 `IOJCBDZD_VKEY`/`IOJCBDZD_BYZD`/`IOJCBDZD_TABLE` 是否非空——`CBaseItem::LoadData` 在 `VKEY` 为空时直接 `OnCancel()`（窗口一闪即关，无报错）。
+- **【硬规则 2.2.1】** `帮助` 必须存 `IOJCBDZD_BZBH` 的**编码**，不是 `IOJCBDZD_BZMC` 的中文显示名。存成中文名时 `GetStrTgValue` 按 `BZBH` 反查命中 0 行，`IOJCBDZD_TABLE` 取到空串，`BaseItemTree` 随即拼出 `SELECT top 100 * from  with(nolock) ...`，客户端报「关键字 'with' 附近有语法错误」。这是最容易被误判为「配置没错」的形态，因为 `BZMC` 明明有值。
+- **【硬规则 2.2.2】** `IOJCBDZD_TOP` 的类型是 **`bit`**，不是 `int`。写入 `2`、`3` 等任何非 0 值都会被隐式转换成 `1`，即「改了等于没改」。只有 `0` 才能关闭。
+- **【硬规则 2.2.3】** 同一 `IOJCBDZD_Vkey` 允许有多行，但**只能有一行 `TOP=1`**。该行供 `v_tbcolumn` 关联做列转译；其余辅助行必须 `TOP=0`。两行以上 `TOP=1` 会让 `v_tbcolumn` 的 `LEFT JOIN` 把字段行复制成多份，`GetCrossTable` 依次拼出多条同名 `left join` → **1013「对象 X 和 X 具有相同的表现名称」**。库中既有范式：`WLBZ`/`WLBZE`、`bb`/`CJBZ2`、`GYSBZ`/`GYSBZ2`。**帮助窗口按 `IOJCBDZD_BZBH` 定位，不看 `TOP`**，所以 `TOP=0` 的帮助行照样能弹出——这是「同一张表要多个不同过滤的帮助」时的唯一正确做法。
+- **【硬规则 2.2.4】** `IOJCBDZD_Filter` 是客户端**原样拼在 `WHERE 1=1` 之后**的片段：必须以 `AND`（或整句 `SELECT`）开头，字符值必须带引号，且**只能引用 `IOJCBDZD_Table` 指向的那张表自己的列**。引用别的表的列 → 207 列名无效；缺 `AND` → 102。要按另一张表的值过滤时用子查询。
 - **【硬规则 2.3】** 帮助窗口的取数 SQL 是 `select <VKEY> as 编号,<BYZD> as 名称 from <TABLE> where 1=1 <FILTER> order by <VKEY>`。`TABLE` 为空 → 列名/对象名无效。
 - **【软规则 2.4】** `帮助` 值为 `GYSBZ`/`KHBZ`（供应商/客户）和 `WLBZ`（物料）时走内置窗口，不读 `IOJCBDZD_TABLE`；这是写死的特例，不要为它们补 `IOJCBDZD` 表映射来“修好”帮助。
 - **【硬规则 2.5】** 关联显示行（`GLZD=''`、只读、投影别名列）不是可选装饰：物理表里即使有同名 Name/规格列，也不得据此删除或改写关联行。
@@ -302,6 +306,12 @@ order by SYSWSPACE_MC
 | 翻前单/明细 SQL 报错 | 缺 `单号`/`分录号` 别名，或 `分录号` 不能 `cast as int` | 回放 `select * from (select … ) t where 单号=… order by cast(分录号 as int)` |
 | 保存后关联编号变空 | `切换=1` 反查 `BYZD→VKEY` 未唯一命中 | 用控件显示值反查业务表 `BYZD` 列，检查行数与空值 |
 | 帮助窗口一闪即关 | `IOJCBDZD_BZBH` 行的 `IOJCBDZD_VKEY` 为空 | 按 `帮助` 值查 `IOJCBDZD_BZBH`，检查 `VKEY/BYZD/TABLE` |
+| 帮助窗口报「关键字 'with' 附近有语法错误」 | `帮助` 存了 `BZMC` 中文名而非 `BZBH` 编码，表名解析为空 | 按 `帮助` 值分别查 `IOJCBDZD_BZBH` 与 `IOJCBDZD_BZMC` |
+| 「对象 X 和 X 具有相同的表现名称」(1013) | 同一 `IOJCBDZD_Vkey` 有多行 `TOP=1`；或同表单多字段共用 `GLZD` 且 `LMark` 都为空 | 按 Vkey 统计 `TOP=1` 行数；按 `(表名,PO,GLZD)` 统计无别名行数 |
+| 改 `IOJCBDZD_TOP=2` 后仍然报错 | `IOJCBDZD_TOP` 是 `bit`，非 0 值一律存成 1 | 查 `sys.types` 确认列类型；应写 `0` |
+| 「关键字 'from' 附近有语法错误」 | `切换=1` 但 `GLZD` 为空，投影成 `, as [显示名],` | 查 `切换=1 AND ISNULL(GLZD,'')=''`；修法是补 `GLZD`，不是改 `切换` |
+| 「关键字 'as' 附近有语法错误」(156) | `GLZD` 非空但无 `TOP=1` 路由，`IOJCBDZD_BYZD` 取不到 | 查「`GLZD` 没有 `TOP=1` 路由」的 Vkey 及其引用字段数 |
+| 某列报「列名无效」(207)，元数据明明有这个字段 | `字段名` 与物理列名不一致（如 `_LBBH` vs `_ZCLX`） | 对照 `sys.columns`；注意同一表单的 `GLZD` JOIN 表里的列也合法 |
 | 搜索恒报“列名 '码表编号' 无效” | 字段集没有 `码表编号` 别名 | 回放 `OnSearch` 形状的 `charindex(…,码表编号)`；属客户端范围，不得新增业务列 |
 | 单据保存后查不到 | 物理 `<表头>_PJLX` 未写 `IOBDZD_BH`，或 `BH` 不唯一 | 表头 `_PJLX` 空值分布；`IOBDZD_BH` 重复行 |
 | 新单号为空 | `PRD_GETDANHAO` 缺失或 `IOBDZD_FORMAT` 空 | 过程是否存在；路由按 `IOBDZD_MC` 的 `FORMAT/BascData/CurMonth/ModifyDate` |
