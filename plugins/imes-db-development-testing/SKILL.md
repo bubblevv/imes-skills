@@ -1,6 +1,6 @@
 ---
 name: imes-db-development-testing
-description: Develop, test, or diagnose IMES SQL Server databases across customer environments, including 元数据表单、SYSFMA 自动计算公式、业务表设计、表结构迁移、索引与约束、存储过程、自定义报表、BDJB、PDA、报工、审核/撤审、回填、同步和生产报错. Use when the user asks to create or change database objects, validate database behavior, or investigate an exact IMES SQL entry point. This skill does not create MFC client forms or dialog resources.
+description: Develop, test, or diagnose IMES (iMES/SegaERP) SQL Server databases across customer environments, including 元数据表单、SYSFMA 自动计算公式、业务表设计、表结构迁移、索引与约束、存储过程、自定义报表、BDJB、PDA、报工、审核/撤审、回填、同步和生产报错. Use when the user asks to create or change database objects, validate database behavior, or investigate an exact IMES SQL entry point. Also use whenever an iMES client form fails to open or behaves wrongly — 表单打不开、标题栏初始化失败、空白页、缺按钮、帮助弹不出、新增后看不到数据、保存不了、列名无效、SQL 语法错误（from/with/as 附近）、对象名重复、字段显示为空 — or when metadata like SYS_TbColumn / IOJCBDZD / IOBDZD / SYSWSPACE / v_tbcolumn may be misconfigured. This skill does not create MFC client forms or dialog resources.
 ---
 
 # IMES数据库开发与测试
