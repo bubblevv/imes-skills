@@ -110,6 +110,13 @@ FROM 来源按顺序回退，第一个非空胜出：
 - **【硬规则 1.2.8】** `GetDataField` 与 `GetCrossTable` 是**两条独立查询**：前者按 `表名` 取字段清单，后者按 `表单名` 取 FROM 来源。`GetCrossTable` 只扫 `PO<=2` 且 `len(GLZD)>0` 的行——**`PO>=3` 的明细页签字段不参与跨表 JOIN**，它们的 `GLZD` 不会生成 JOIN。给第三个及以后页签写 `GLZD` 不会生效，也不会报错。
 - **【硬规则 1.2.9】** `GetDataField` 里 `LMark` 与 `RMark` 的用法**不对称**：`LMark` 用于关联表别名（加在 `IOJCBDZD_BYZD`/`字段名` 前），`RMark` 只出现在 `切换` 为假的分支。`bShowCovertName=false` 时只认 `LMark`，`RMark` 被忽略。同一个字段在两条入口下投影可能不同，必须按调用点分别回放。
 - **【硬规则 1.2.10】** 源码里同一查询写了三种大小写：`v_tbcolumn`、`V_TbColumn`、`V_TBCOLUMN`。它们必须在目标库里指向同一个可解析对象（视图或表），且库排序规则大小写不敏感。三者中任一被建成同名不同物的两个对象，会出现“有的界面正常、有的报列名无效”。
+- **【硬规则 1.2.11】** `GLZD` 存的是**目标字典表的键列名**，靠 `IOJCBDZD_Vkey` 反查路由，并且要求 `IOJCBDZD_TOP=1`；视图 `V_TBCOLUMN` 的实际连接条件就是 `SYS_TbColumn.GLZD = IOJCBDZD.IOJCBDZD_Vkey AND IOJCBDZD_TOP=1`。**这个反查会落空**，落空时分两种残缺形状，两种都让整条语句被服务器拒绝（不是少一列）：
+  - `GetDataField`：`IOJCBDZD_BYZD` 取不到 → 投影变成 `..., as [<显示名>], ...`（`SGSoft.cpp` 的 `str1=str1+strBYZD+" as "+"["+strXSM+"]"`），服务器报「关键字 'as' 附近有语法错误」(156)。
+  - `GetCrossTable`：`IOJCBDZD_Table`/`IOJCBDZD_Vkey` 取不到 → 拼成 ` left join  on <字段名>= `（`SGSoft.cpp` 无条件追加，没有空值守卫）。
+  - `CPageRowsTab::PageRowsBuildDataField`（缓存列快路径）遇到这种行会对**整个字段清单**返回空串，但 `PageRowsTab.cpp` 会回退到 `GetDataField`，所以症状是「查询报语法错误」而不是「页签空白」。
+  - **写全库扫描时必须同时约束 `LEN(GLZD)>0`**：这一族库里存在 `IOJCBDZD_Vkey` 为空串且 `TOP=1` 的路由，朴素的 `LEFT JOIN ... ON GLZD=Vkey` 会命中所有 `GLZD=''` 的行，把一条路由放大成几千条幻影结果。`GLZD=''` 的语义是「没有关联」，客户端用 `len(GLZD)>0` 跳过它。
+  - 解析 JOIN 目标**不能用 `OBJECT_ID(...,N'U')`**：`GetCrossTable` 生成的是 `left join <目标>`，表、视图、同义词都能用；按「用户表」过滤会把指向视图的合法路由报成缺陷。
+  - 单一 `GLZD` 缺路由通常影响几十张表单（一次 `GROUP BY GLZD` 就能看出引用字段数）。补一条 `TOP=1` 主路由即可全部修好，**不要逐字段改**；交付说明必须写明修复范围远大于用户报告的单点。
 
 ### 1.3 字段投影的其它入口（同一套元数据、不同投影）
 
