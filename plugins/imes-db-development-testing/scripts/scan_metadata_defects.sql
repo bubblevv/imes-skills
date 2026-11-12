@@ -237,6 +237,10 @@ d7 AS (SELECT COUNT(*) n FROM IOJCBDZD
               WHERE ISNULL(IOJCBDZD_Filter, N'') <> N''
                 AND LTRIM(IOJCBDZD_Filter) NOT LIKE N'AND%'
                 AND LTRIM(IOJCBDZD_Filter) NOT LIKE N'SELECT%'),
+d9 AS (SELECT COUNT(*) n FROM SYS_TbColumn
+              WHERE (类型 IS NOT NULL AND DATALENGTH(类型) <> DATALENGTH(LTRIM(RTRIM(类型))))
+                 OR (控件 IS NOT NULL AND DATALENGTH(控件) <> DATALENGTH(LTRIM(RTRIM(控件))))
+                 OR (PO   IS NOT NULL AND DATALENGTH(PO)   <> DATALENGTH(LTRIM(RTRIM(PO))))),
 w8 AS (SELECT COUNT(*) n FROM (SELECT 帮助 FROM SYS_TbColumn t
               WHERE ISNULL(t.帮助, N'') <> N''
                 AND NOT EXISTS (SELECT 1 FROM IOJCBDZD z
@@ -249,6 +253,7 @@ UNION ALL SELECT N'4.切换=1但GLZD为空（from 语法错）', CAST(d4.n AS nv
 UNION ALL SELECT N'5.GLZD无TOP=1路由（as 语法错）', CAST(d5.n AS nvarchar(20)), N'FAIL' FROM d5
 UNION ALL SELECT N'7.Filter形状可疑（102/207）', CAST(d7.n AS nvarchar(20)), N'FAIL' FROM d7
 UNION ALL SELECT N'8.帮助编码完全悬空（既有缺口）', CAST(w8.n AS nvarchar(20)), N'WARN' FROM w8
+UNION ALL SELECT N'9.类型/控件/PO 含首尾空格（LoadFormData 提前 break，后续字段全部不回填）', CAST(d9.n AS nvarchar(20)), N'FAIL' FROM d9
 UNION ALL SELECT N'6.字段名悬空（207）', N'见上方明细（按表单分组计数）', N'FAIL';
 
 SELECT N'扫描完成' AS 总结,
