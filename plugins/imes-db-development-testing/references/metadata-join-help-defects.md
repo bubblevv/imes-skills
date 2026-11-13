@@ -75,6 +75,44 @@ WHERE ISNULL(t.帮助, N'') <> N''
 
 修法：把「当前填的值」换成「应填的编码」。
 
+### 帮助编码在 `IOJCBDZD_BZBH` 完全不存在（不是填了中文名）
+
+表现和上一节一样（点帮助报「关键字 'with' 附近有语法错误」），但「应填的编码」那一步
+查不到值——该编码在本库根本没有定义。先看有多少字段引用它：
+
+```sql
+SELECT c.帮助, COUNT(*) AS 引用数
+FROM SYS_TbColumn c
+WHERE ISNULL(c.帮助, N'') <> N''
+  AND NOT EXISTS (SELECT 1 FROM IOJCBDZD z WHERE z.IOJCBDZD_BZBH = c.帮助)
+GROUP BY c.帮助
+ORDER BY COUNT(*) DESC;
+```
+
+**`IOJCBDZD` 有两个唯一键**：`PK_IOJCBDZD(IOJCBDZD_BH)` 与 `IX_IOJCBDZD(IOJCBDZD_MC)`。
+后者是「帮助名唯一」，所以照着现有行插一条同 `MC` 的新编码必定失败：
+
+```
+违反了 UNIQUE KEY 约束"IX_IOJCBDZD"。不能在对象"dbo.IOJCBDZD"中插入重复键。重复键值为 (部门信息)。
+```
+
+三种修法，按优先级：
+
+1. **把现有行的编码改成元数据在用的那个**（推荐，1 行；元数据不动）：
+```sql
+-- 先确认旧编码没有字段引用
+SELECT COUNT(*) FROM SYS_TbColumn WHERE 帮助 = N'bb';
+
+UPDATE IOJCBDZD SET IOJCBDZD_BZBH = N'BMBZ'
+WHERE IOJCBDZD_BZBH = N'bb'
+  AND NOT EXISTS (SELECT 1 FROM IOJCBDZD WHERE IOJCBDZD_BZBH = N'BMBZ');
+```
+2. 改元数据，让字段指向库里已有的编码：`UPDATE SYS_TbColumn SET 帮助 = N'bb' WHERE 帮助 = N'BMBZ';`
+3. 确实要两条并存时，新行的 `IOJCBDZD_MC` 必须换成不重复的名字（如 `部门信息(BMBZ)`），否则 2627。
+
+选择依据：旧编码被 `SYS_TbColumn.帮助` 引用数为 0 时它是孤儿，优先改旧行的编码；
+被引用时说明两条都有用，只能改元数据或用不同的 `IOJCBDZD_MC` 新增。
+
 ### `对象 "X" 和 "X" 在 FROM 子句中有相同的表现名称`（错误 1013）
 
 同一个表被 JOIN 两次且都没有别名。两种来源，**必须分别查**：
